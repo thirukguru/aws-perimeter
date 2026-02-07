@@ -125,6 +125,42 @@
 
 ---
 
+## 🐳 ECS Security (10 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **Privileged Container** | Container runs in privileged mode |
+| **Run As Root** | Container runs as root user |
+| **Hardcoded Secrets** | Secrets in environment variables |
+| **Public IP Assigned** | Task has public IP exposure |
+| **Host Network Mode** | Container shares host network |
+| **Public Image** | Non-ECR container image |
+| **Writable Root FS** | Root filesystem not read-only |
+| **Dangerous Capability** | SYS_ADMIN/NET_ADMIN added |
+| **ECS Exec Enabled** | Shell access to containers |
+| **No Container Insights** | Monitoring not enabled |
+
+---
+
+## ☸️ EKS Security (12 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **Public Endpoint Open** | API server exposed to 0.0.0.0/0 |
+| **No Private Endpoint** | No private API access |
+| **No Control Plane Logs** | CloudWatch logging disabled |
+| **Incomplete Logging** | Missing api/audit/auth logs |
+| **Secrets Not Encrypted** | No KMS encryption for secrets |
+| **Outdated K8s Version** | Version < 1.28 |
+| **No OIDC Provider** | IRSA not configured |
+| **Legacy Auth Mode** | Using aws-auth ConfigMap |
+| **Public Subnet Nodes** | Workers in public subnets |
+| **Unrestricted SSH** | No SG restriction on SSH |
+| **Admin Node Role** | Nodes have admin IAM |
+| **Standard AMI** | Not using Bottlerocket |
+
+---
+
 ## 🔧 Extended Checks (15 Rules)
 
 | Rule | Description |
@@ -160,8 +196,10 @@
 | CloudFront | 6 | ✅ |
 | API Gateway | 10 | ✅ |
 | Aurora/RDS | 10 | ✅ |
+| ECS Security | 10 | ✅ |
+| EKS Security | 12 | ✅ |
 | Extended | 15 | ✅ |
-| **Total** | **73** | ✅ |
+| **Total** | **95** | ✅ |
 
 ---
 

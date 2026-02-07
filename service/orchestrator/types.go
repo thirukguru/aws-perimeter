@@ -2,11 +2,14 @@ package orchestrator
 
 import (
 	"github.com/thirukguru/aws-perimeter/model"
+	"github.com/thirukguru/aws-perimeter/service/aidetection"
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
+	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
+	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
 	"github.com/thirukguru/aws-perimeter/service/governance"
 	"github.com/thirukguru/aws-perimeter/service/guardduty"
@@ -58,6 +61,11 @@ type service struct {
 	vpcEndpointsService  vpcendpoints.Service
 	vpcAdvancedService   vpcadvanced.Service
 	iamAdvancedService   iamadvanced.Service
+	// Container security services
+	ecsSecService ecssecurity.Service
+	eksSecService ekssecurity.Service
+	// AI attack detection
+	aiDetectionService aidetection.Service
 }
 
 // Service is the interface for orchestrator service.

@@ -7,12 +7,15 @@ import (
 	"os"
 
 	"github.com/thirukguru/aws-perimeter/model"
+	"github.com/thirukguru/aws-perimeter/service/aidetection"
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
 	awsconfig "github.com/thirukguru/aws-perimeter/service/aws_config"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
+	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
+	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
 	"github.com/thirukguru/aws-perimeter/service/flag"
 	"github.com/thirukguru/aws-perimeter/service/governance"
@@ -72,6 +75,8 @@ func run() error {
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			outputService, versionInfo,
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, // ECS/EKS services
+			nil, // AI detection
 		)
 
 		return orchestratorService.Orchestrate(flags)
@@ -118,6 +123,11 @@ func run() error {
 	vpcEndpointsService := vpcendpoints.NewService(awsCfg)
 	vpcAdvancedService := vpcadvanced.NewService(awsCfg)
 	iamAdvancedService := iamadvanced.NewService(awsCfg)
+	// Container security services
+	ecsSecService := ecssecurity.NewService(awsCfg)
+	eksSecService := ekssecurity.NewService(awsCfg)
+	// AI attack detection
+	aiDetectionService := aidetection.NewService(awsCfg)
 
 	orchestratorService := orchestrator.NewService(
 		stsService,
@@ -147,6 +157,11 @@ func run() error {
 		vpcEndpointsService,
 		vpcAdvancedService,
 		iamAdvancedService,
+		// Container security
+		ecsSecService,
+		eksSecService,
+		// AI attack detection
+		aiDetectionService,
 	)
 
 	if err := orchestratorService.Orchestrate(flags); err != nil {

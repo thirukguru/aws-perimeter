@@ -7,11 +7,14 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/thirukguru/aws-perimeter/model"
+	"github.com/thirukguru/aws-perimeter/service/aidetection"
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
+	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
+	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
 	"github.com/thirukguru/aws-perimeter/service/governance"
 	"github.com/thirukguru/aws-perimeter/service/guardduty"
@@ -66,6 +69,11 @@ func NewService(
 	vpcEndpointsService vpcendpoints.Service,
 	vpcAdvancedService vpcadvanced.Service,
 	iamAdvancedService iamadvanced.Service,
+	// Container security
+	ecsSecService ecssecurity.Service,
+	eksSecService ekssecurity.Service,
+	// AI attack detection
+	aiDetectionService aidetection.Service,
 ) Service {
 	return &service{
 		stsService:           stsService,
@@ -94,6 +102,9 @@ func NewService(
 		vpcEndpointsService:  vpcEndpointsService,
 		vpcAdvancedService:   vpcAdvancedService,
 		iamAdvancedService:   iamAdvancedService,
+		ecsSecService:        ecsSecService,
+		eksSecService:        eksSecService,
+		aiDetectionService:   aiDetectionService,
 	}
 }
 
@@ -212,6 +223,11 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		externalIDRisks  []iamadvanced.ExternalIDRisk
 		boundaryRisks    []iamadvanced.PermissionBoundaryRisk
 		instanceProfiles []iamadvanced.InstanceProfileRisk
+		// Container Security
+		ecsRisks []ecssecurity.ECSRisk
+		eksRisks []ekssecurity.EKSRisk
+		// AI Attack Detection
+		aiRisks []aidetection.AIRisk
 	)
 
 	var stsResult *sts.GetCallerIdentityOutput
@@ -542,6 +558,31 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	g.Go(func() error {
 		var err error
 		instanceProfiles, err = s.iamAdvancedService.GetInstanceProfileRisks(ctx)
+		return err
+	})
+
+	// Container Security
+	g.Go(func() error {
+		var err error
+		if s.ecsSecService != nil {
+			ecsRisks, err = s.ecsSecService.GetECSRisks(ctx)
+		}
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		if s.eksSecService != nil {
+			eksRisks, err = s.eksSecService.GetEKSRisks(ctx)
+		}
+		return err
+	})
+
+	// AI Attack Detection
+	g.Go(func() error {
+		var err error
+		if s.aiDetectionService != nil {
+			aiRisks, err = s.aiDetectionService.GetAIRisks(ctx)
+		}
 		return err
 	})
 
@@ -1023,6 +1064,38 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 					Resource: profile.InstanceProfileName, Description: profile.Description,
 				})
 			}
+		}
+		// Container Security - ECS
+		for _, ecs := range ecsRisks {
+			resource := ecs.ClusterName
+			if ecs.ServiceName != "" {
+				resource = ecs.ClusterName + "/" + ecs.ServiceName
+			}
+			if ecs.ContainerName != "" {
+				resource = resource + "/" + ecs.ContainerName
+			}
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: ecs.Severity, Title: "ECS: " + ecs.RiskType,
+				Resource: resource, Description: ecs.Description, Recommendation: ecs.Recommendation,
+			})
+		}
+		// Container Security - EKS
+		for _, eks := range eksRisks {
+			resource := eks.ClusterName
+			if eks.NodeGroupName != "" {
+				resource = eks.ClusterName + "/" + eks.NodeGroupName
+			}
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: eks.Severity, Title: "EKS: " + eks.RiskType,
+				Resource: resource, Description: eks.Description, Recommendation: eks.Recommendation,
+			})
+		}
+		// AI Attack Detection
+		for _, ai := range aiRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: ai.Severity, Title: "AI: " + ai.RiskType,
+				Resource: ai.Resource, Description: ai.Description, Recommendation: ai.Recommendation,
+			})
 		}
 		sections = append(sections, htmloutput.NewExtendedSection(extFindings))
 

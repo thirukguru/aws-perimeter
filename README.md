@@ -7,56 +7,105 @@
   <a href="https://github.com/thirukguru/aws-perimeter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/thirukguru/aws-perimeter" alt="License"></a>
 </p>
 
-A terminal-based **AWS Security Scanner** that analyzes your cloud infrastructure for security misconfigurations. Detects dangerous IAM permissions, exposed secrets, misconfigured S3 buckets, and logging gaps.
+A terminal-based **AWS Security Scanner** with **102+ security checks** across VPC, IAM, S3, CloudTrail, containers (ECS/EKS), and AI attack detection. Detects dangerous IAM permissions, exposed secrets, misconfigured S3 buckets, container vulnerabilities, and emerging LLMjacking threats.
 
 ## Features
 
-### VPC Security
+### 🔒 VPC Security
 - Security group analysis (open SSH/RDP, database ports)
-- Public exposure detection
-- Network ACL analysis
-- VPC Flow Log audit
+- Public exposure detection & management port risks
+- Network ACL analysis & VPC Flow Log audit
+- VPC peering risks, bastion host detection
+- NAT Gateway status & VPC endpoint coverage
 
-###  IAM Security
+### 🔑 IAM Security
 - Privilege escalation detection (17 patterns)
 - Stale credentials (90+ days)
 - Cross-account trust analysis
 - MFA enforcement gaps
 - Overly permissive policies (`*:*`)
+- Role chaining, external ID, permission boundaries
 
-###  S3 Security
+### 📦 S3 Security
 - Public bucket detection
-- Encryption audit
-- Risky bucket policies
+- Encryption audit & risky bucket policies
+- Public access block status
 
-### CloudTrail Audit
-- Trail coverage gaps
-- Multi-region logging
+### 📋 CloudTrail & Logging
+- Trail coverage gaps & multi-region logging
 - Log validation status
+- CloudWatch Logs integration
 
-### Secrets Detection
+### 🔐 Secrets Detection
 - Lambda env vars (10 secret patterns)
 - EC2 user data scanning
 - AWS keys, GitHub/Slack/Stripe tokens
 
-## Security Checks
+### 🐳 Container Security (NEW)
+
+#### ECS Security (10 checks)
+- Privileged containers
+- Secrets in environment variables
+- Public IP exposure
+- Host network mode
+- Non-ECR images
+- Writable root filesystem
+- Dangerous Linux capabilities
+- ECS Exec enabled
+- Container Insights status
+- Admin task role
+
+#### EKS Security (12 checks)
+- Public endpoint access
+- Private endpoint disabled
+- Control plane logging
+- Secrets encryption
+- Kubernetes version
+- OIDC provider for IRSA
+- Legacy auth modes
+- Public subnet nodes
+- Unrestricted SSH access
+- Admin-level node IAM role
+- AMI type (Bottlerocket preference)
+
+### 🤖 AI Attack Detection (NEW)
+*Based on Feb 2025 threat intelligence: 8-minute AWS breach*
+
+- **GPU Instance Monitoring**: Detection of p2/p3/p4/p5, g3/g4/g5, inf1/inf2, trn1 instances
+- **GPU Public Exposure**: GPU instances with public IPs
+- **GPU IMDSv1 Risk**: GPU instances vulnerable to credential theft
+- **Bedrock Abuse**: High-capacity provisioned throughput detection
+- **Custom Models**: Unauthorized Bedrock model training
+- **Bedrock Logging**: Missing model invocation logging
+- **Rapid Provisioning**: EC2 API throttle detection (attack pattern)
+
+## Security Checks Summary
+
+| Category | Count |
+|----------|-------|
+| Core (IAM, VPC, S3, CloudTrail, Secrets) | 38 |
+| Extended (Lambda, ELB, Route53, Inspector, etc.) | 35 |
+| Container Security (ECS + EKS) | 22 |
+| AI Attack Detection | 7 |
+| **Total** | **102** |
+
+## Critical Security Checks
 
 | Check | Severity | Description |
 |-------|----------|-------------|
-| Privilege Escalation |  Critical | User can escalate to admin |
-| Admin Access (*:*) |  Critical | Full AWS access granted |
-| Exposed Secrets | Critical | API keys/tokens in Lambda/EC2 |
-| Public S3 Bucket | Critical | Bucket publicly accessible |
-| No CloudTrail | Critical | No audit logging |
-| Open SSH/RDP | Critical | Port 22/3389 to internet |
-| Cross-Account Trust | High | External account can assume role |
-| Stale Access Keys | High | Keys not rotated in 90+ days |
-| No Encryption |  Medium | S3 bucket unencrypted |
-| No MFA |  Medium | Console user without MFA |
+| Privilege Escalation | 🔴 Critical | User can escalate to admin |
+| Admin Access (*:*) | 🔴 Critical | Full AWS access granted |
+| Exposed Secrets | 🔴 Critical | API keys/tokens in Lambda/EC2 |
+| Public S3 Bucket | 🔴 Critical | Bucket publicly accessible |
+| No CloudTrail | 🔴 Critical | No audit logging |
+| Open SSH/RDP | 🔴 Critical | Port 22/3389 to internet |
+| Privileged Container | 🔴 Critical | ECS container with root access |
+| GPU IMDSv1 | 🔴 Critical | GPU instance credentials vulnerable |
+| Cross-Account Trust | 🟠 High | External account can assume role |
+| EKS Public Endpoint | 🟠 High | Kubernetes API publicly accessible |
+| Bedrock No Logging | 🟠 High | AI model usage not audited |
 
 ## Prerequisites
-
-Before using aws-perimeter, ensure you have:
 
 ### 1. AWS CLI Installed
 ```bash
@@ -66,42 +115,28 @@ brew install awscli
 # Linux
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip && sudo ./aws/install
-
-# Windows
-# Download: https://awscli.amazonaws.com/AWSCLIV2.msi
 ```
 
 ### 2. AWS Credentials Configured
 ```bash
 aws configure
-# AWS Access Key ID: AKIA...
-# AWS Secret Access Key: ****
-# Default region name: us-east-1
-# Default output format: json
-```
-
-Or use named profiles:
-```bash
+# or use named profiles
 aws configure --profile myprofile
 ```
 
 ### 3. Required IAM Permissions
-Your AWS credentials must have **read-only** access to the services being scanned. See [Required AWS Permissions](#required-aws-permissions) below.
+Your AWS credentials must have **read-only** access to the services being scanned. The AWS managed policy `ReadOnlyAccess` works, or see [Required Permissions](#required-aws-permissions) below.
 
 > **Note**: aws-perimeter only performs **read operations** and never modifies your AWS resources.
-
----
 
 ## Installation
 
 ### Quick Install (macOS/Linux)
-
 ```bash
 curl -sSfL https://raw.githubusercontent.com/thirukguru/aws-perimeter/main/install.sh | sh
 ```
 
 ### Using Go
-
 ```bash
 go install github.com/thirukguru/aws-perimeter@latest
 ```
@@ -109,10 +144,11 @@ go install github.com/thirukguru/aws-perimeter@latest
 ## Usage
 
 ```bash
-aws-perimeter                      # Run full security scan
-aws-perimeter --output json        # JSON output
-aws-perimeter --profile prod       # Specific AWS profile
-aws-perimeter --region us-west-2   # Specific region
+aws-perimeter                          # Run full security scan
+aws-perimeter --output json            # JSON output
+aws-perimeter --profile prod           # Specific AWS profile
+aws-perimeter --region us-west-2       # Specific region
+aws-perimeter --html report.html       # Generate HTML report
 ```
 
 ## Flags
@@ -122,11 +158,12 @@ aws-perimeter --region us-west-2   # Specific region
 | `--profile` | `-p` | AWS profile to use |
 | `--region` | `-r` | AWS region |
 | `--output` | `-o` | Output format: `table` or `json` |
+| `--html` | | Generate HTML report |
 | `--version` | `-v` | Version information |
 
 ## Required AWS Permissions
 
-The following read-only permissions are required. You can use the AWS managed policy `ReadOnlyAccess` or create a custom policy:
+The following read-only permissions are required:
 
 ```json
 {
@@ -136,99 +173,75 @@ The following read-only permissions are required. You can use the AWS managed po
       "Effect": "Allow",
       "Action": [
         "sts:GetCallerIdentity",
-
-        "ec2:DescribeSecurityGroups",
-        "ec2:DescribeNetworkAcls",
-        "ec2:DescribeNetworkInterfaces",
-        "ec2:DescribeInstances",
-        "ec2:DescribeVpcs",
-        "ec2:DescribeFlowLogs",
-        "ec2:DescribeSubnets",
-        "ec2:DescribeRouteTables",
-        "ec2:DescribeInternetGateways",
-        "ec2:DescribeNatGateways",
-        "ec2:DescribeVpcEndpoints",
-        "ec2:DescribeVpcPeeringConnections",
-        "ec2:DescribeSnapshots",
-        "ec2:DescribeImages",
+        
+        "ec2:Describe*",
         "ec2:GetEbsEncryptionByDefault",
-        "ec2:GetEbsDefaultKmsKeyId",
-
-        "iam:ListUsers",
-        "iam:ListRoles",
-        "iam:ListPolicies",
-        "iam:ListAttachedUserPolicies",
-        "iam:ListAttachedRolePolicies",
-        "iam:ListUserPolicies",
-        "iam:ListRolePolicies",
-        "iam:GetPolicy",
-        "iam:GetPolicyVersion",
-        "iam:GetUserPolicy",
-        "iam:GetRolePolicy",
-        "iam:GetRole",
-        "iam:ListMFADevices",
-        "iam:ListInstanceProfiles",
-        "iam:GetCredentialReport",
+        
+        "iam:List*",
+        "iam:Get*",
         "iam:GenerateCredentialReport",
-
+        
         "s3:ListAllMyBuckets",
-        "s3:GetBucketPublicAccessBlock",
-        "s3:GetBucketAcl",
+        "s3:GetBucket*",
         "s3:GetEncryptionConfiguration",
-        "s3:GetBucketPolicy",
-        "s3:GetBucketPolicyStatus",
-        "s3:ListBucket",
-        "s3:GetObject",
-
+        
         "cloudtrail:DescribeTrails",
         "cloudtrail:GetTrailStatus",
         "cloudtrail:LookupEvents",
-
+        
         "lambda:ListFunctions",
         "lambda:GetFunctionConfiguration",
-
+        
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        
+        "eks:ListClusters",
+        "eks:DescribeCluster",
+        "eks:ListNodegroups",
+        "eks:DescribeNodegroup",
+        
+        "bedrock:ListProvisionedModelThroughputs",
+        "bedrock:ListCustomModels",
+        "bedrock:GetModelInvocationLoggingConfiguration",
+        
         "guardduty:ListDetectors",
         "guardduty:GetDetector",
         "guardduty:ListFindings",
         "guardduty:GetFindings",
-
+        
         "securityhub:DescribeHub",
         "securityhub:GetFindings",
-
-        "config:DescribeConfigurationRecorders",
-        "config:DescribeConfigurationRecorderStatus",
-        "config:DescribeDeliveryChannels",
-
+        
+        "config:Describe*",
+        
         "kms:ListKeys",
         "kms:DescribeKey",
         "kms:GetKeyRotationStatus",
-
-        "rds:DescribeDBInstances",
-
+        
+        "rds:DescribeDB*",
+        
         "dynamodb:ListTables",
         "dynamodb:DescribeTable",
         "dynamodb:DescribeContinuousBackups",
-
+        
         "secretsmanager:ListSecrets",
-
-        "elasticloadbalancing:DescribeLoadBalancers",
-        "elasticloadbalancing:DescribeListeners",
-        "elasticloadbalancing:DescribeLoadBalancerAttributes",
-
-        "backup:ListBackupVaults",
-        "backup:ListBackupPlans",
-        "backup:ListProtectedResources",
-
+        
+        "elasticloadbalancing:Describe*",
+        
+        "backup:List*",
+        
         "apigateway:GET",
-
-        "cloudfront:ListDistributions",
-        "cloudfront:GetDistribution",
-
-        "rds:DescribeDBClusters",
-        "rds:DescribeDBInstances",
-        "SNS:ListTopics",
-        "ec2:DescribeNetworkInterfaces",
-        "sqs:listqueues"
+        
+        "cloudfront:List*",
+        "cloudfront:Get*",
+        
+        "cloudwatch:GetMetricStatistics",
+        
+        "sns:ListTopics",
+        "sqs:ListQueues"
       ],
       "Resource": "*"
     }
