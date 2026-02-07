@@ -183,6 +183,22 @@
 
 ---
 
+## 🤖 AI Attack Detection (7 Rules)
+
+*Based on Feb 2025 threat intelligence: 8-minute AWS breach using AI*
+
+| Rule | Severity | Description |
+|------|----------|-------------|
+| **GPU Instance Running** | Medium/High | Detects p2/p3/p4/p5, g3/g4/g5, inf, trn instances - LLMjacking targets |
+| **GPU Public IP** | High | GPU instance with public IP - easily discoverable target |
+| **GPU IMDSv1** | Critical | GPU instance using IMDSv1 - credentials easily stolen |
+| **High Bedrock Capacity** | Medium | Provisioned throughput with high model units |
+| **Custom Bedrock Model** | Medium | Unauthorized custom model training detected |
+| **No Bedrock Logging** | High | Model invocation logging disabled - abuse goes undetected |
+| **Rapid API Activity** | High | EC2 API throttling - indicates automated attack patterns |
+
+---
+
 ## 📊 Summary
 
 | Category | Rule Count | Production Ready |
@@ -199,7 +215,8 @@
 | ECS Security | 10 | ✅ |
 | EKS Security | 12 | ✅ |
 | Extended | 15 | ✅ |
-| **Total** | **95** | ✅ |
+| AI Attack Detection | 7 | ✅ |
+| **Total** | **102** | ✅ |
 
 ---
 
@@ -209,4 +226,5 @@ Many rules are based on real-world attack patterns:
 - **GRU Sandworm Campaign** - Network edge device targeting
 - **EmeraldWhale Campaign** - S3 bucket credential harvesting
 - **ShinyHunters/Nemesis** - IAM privilege escalation patterns
+- **Feb 2025 LLMjacking** - 8-minute AWS breach using AI for credential theft
 - **AWS Security Best Practices** - CIS Benchmarks, AWS Well-Architected Framework
