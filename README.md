@@ -24,7 +24,7 @@ A terminal-based **AWS Security Scanner** that analyzes your cloud infrastructur
 - MFA enforcement gaps
 - Overly permissive policies (`*:*`)
 
-### 🪣 S3 Security
+###  S3 Security
 - Public bucket detection
 - Encryption audit
 - Risky bucket policies
