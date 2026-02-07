@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-REPO="thirukgure/aws-doctor"
-BINARY_NAME="aws-doctor"
+REPO="thirukguru/aws-perimeter"
+BINARY_NAME="aws-perimeter"
 
 if [ -z "$INSTALL_DIR" ]; then
     # Try to detect existing installation to update it
@@ -157,8 +157,8 @@ install_binary() {
 }
 
 main() {
-    log_info "AWS Doctor Installer"
-    log_info "===================="
+    log_info "AWS Perimeter Installer"
+    log_info "======================="
 
     TMP_DIR=$(mktemp -d)
     trap 'rm -rf "$TMP_DIR"' EXIT
@@ -189,7 +189,7 @@ main() {
     esac
 
     log_info ""
-    log_info "Run 'aws-doctor --help' to get started"
+    log_info "Run 'aws-perimeter --help' to get started"
 }
 
 main "$@"
