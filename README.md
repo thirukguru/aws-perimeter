@@ -11,13 +11,13 @@ A terminal-based **AWS Security Scanner** that analyzes your cloud infrastructur
 
 ## Features
 
-### 🔐 VPC Security
+### VPC Security
 - Security group analysis (open SSH/RDP, database ports)
 - Public exposure detection
 - Network ACL analysis
 - VPC Flow Log audit
 
-### 🔑 IAM Security
+###  IAM Security
 - Privilege escalation detection (17 patterns)
 - Stale credentials (90+ days)
 - Cross-account trust analysis
@@ -29,12 +29,12 @@ A terminal-based **AWS Security Scanner** that analyzes your cloud infrastructur
 - Encryption audit
 - Risky bucket policies
 
-### 📋 CloudTrail Audit
+### CloudTrail Audit
 - Trail coverage gaps
 - Multi-region logging
 - Log validation status
 
-### 🔐 Secrets Detection
+### Secrets Detection
 - Lambda env vars (10 secret patterns)
 - EC2 user data scanning
 - AWS keys, GitHub/Slack/Stripe tokens
@@ -43,16 +43,16 @@ A terminal-based **AWS Security Scanner** that analyzes your cloud infrastructur
 
 | Check | Severity | Description |
 |-------|----------|-------------|
-| Privilege Escalation | 🔴 Critical | User can escalate to admin |
-| Admin Access (*:*) | 🔴 Critical | Full AWS access granted |
-| Exposed Secrets | 🔴 Critical | API keys/tokens in Lambda/EC2 |
-| Public S3 Bucket | 🔴 Critical | Bucket publicly accessible |
-| No CloudTrail | 🔴 Critical | No audit logging |
-| Open SSH/RDP | 🔴 Critical | Port 22/3389 to internet |
-| Cross-Account Trust | 🟠 High | External account can assume role |
-| Stale Access Keys | 🟠 High | Keys not rotated in 90+ days |
-| No Encryption | 🟡 Medium | S3 bucket unencrypted |
-| No MFA | 🟡 Medium | Console user without MFA |
+| Privilege Escalation |  Critical | User can escalate to admin |
+| Admin Access (*:*) |  Critical | Full AWS access granted |
+| Exposed Secrets | Critical | API keys/tokens in Lambda/EC2 |
+| Public S3 Bucket | Critical | Bucket publicly accessible |
+| No CloudTrail | Critical | No audit logging |
+| Open SSH/RDP | Critical | Port 22/3389 to internet |
+| Cross-Account Trust | High | External account can assume role |
+| Stale Access Keys | High | Keys not rotated in 90+ days |
+| No Encryption |  Medium | S3 bucket unencrypted |
+| No MFA |  Medium | Console user without MFA |
 
 ## Prerequisites
 
