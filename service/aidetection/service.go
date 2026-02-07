@@ -5,9 +5,12 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrock"
+	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
+	ctTypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwTypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -36,19 +39,21 @@ type Service interface {
 }
 
 type service struct {
-	ec2Client     *ec2.Client
-	bedrockClient *bedrock.Client
-	cwClient      *cloudwatch.Client
-	region        string
+	ec2Client        *ec2.Client
+	bedrockClient    *bedrock.Client
+	cwClient         *cloudwatch.Client
+	cloudtrailClient *cloudtrail.Client
+	region           string
 }
 
 // NewService creates a new AI detection service
 func NewService(cfg aws.Config) Service {
 	return &service{
-		ec2Client:     ec2.NewFromConfig(cfg),
-		bedrockClient: bedrock.NewFromConfig(cfg),
-		cwClient:      cloudwatch.NewFromConfig(cfg),
-		region:        cfg.Region,
+		ec2Client:        ec2.NewFromConfig(cfg),
+		bedrockClient:    bedrock.NewFromConfig(cfg),
+		cwClient:         cloudwatch.NewFromConfig(cfg),
+		cloudtrailClient: cloudtrail.NewFromConfig(cfg),
+		region:           cfg.Region,
 	}
 }
 
@@ -103,6 +108,29 @@ var credentialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)aws_session_token`),     // Session token
 }
 
+// High-risk IAM actions that indicate privilege escalation
+var adminActions = []string{
+	"AttachUserPolicy",
+	"AttachRolePolicy",
+	"PutUserPolicy",
+	"PutRolePolicy",
+	"CreateAccessKey",
+	"UpdateAssumeRolePolicy",
+	"CreateRole",
+	"CreateUser",
+	"AddUserToGroup",
+	"AttachGroupPolicy",
+}
+
+// Lateral movement event patterns
+var lateralMovementActions = []string{
+	"AssumeRole",
+	"GetSessionToken",
+	"GetFederationToken",
+	"AssumeRoleWithSAML",
+	"AssumeRoleWithWebIdentity",
+}
+
 // GetAIRisks analyzes for AI-powered attack indicators
 func (s *service) GetAIRisks(ctx context.Context) ([]AIRisk, error) {
 	var risks []AIRisk
@@ -118,6 +146,18 @@ func (s *service) GetAIRisks(ctx context.Context) ([]AIRisk, error) {
 	// 3. Check for rapid resource provisioning
 	rapidProvRisks, _ := s.checkRapidProvisioning(ctx)
 	risks = append(risks, rapidProvRisks...)
+
+	// 4. Check for lateral movement patterns
+	lateralRisks, _ := s.checkLateralMovement(ctx)
+	risks = append(risks, lateralRisks...)
+
+	// 5. Check for rapid admin access
+	adminRisks, _ := s.checkRapidAdminAccess(ctx)
+	risks = append(risks, adminRisks...)
+
+	// 6. Check for CloudTrail gaps
+	trailGapRisks, _ := s.checkCloudTrailGaps(ctx)
+	risks = append(risks, trailGapRisks...)
 
 	return risks, nil
 }
@@ -283,12 +323,15 @@ func (s *service) checkBedrockConfig(ctx context.Context) ([]AIRisk, error) {
 func (s *service) checkRapidProvisioning(ctx context.Context) ([]AIRisk, error) {
 	var risks []AIRisk
 
+	now := time.Now()
+	startTime := now.Add(-24 * time.Hour)
+
 	// Check for EC2 API throttling (indicates rapid API calls - attack pattern)
 	throttleMetric, err := s.cwClient.GetMetricStatistics(ctx, &cloudwatch.GetMetricStatisticsInput{
 		Namespace:  aws.String("AWS/EC2"),
 		MetricName: aws.String("ThrottledRequests"),
-		StartTime:  aws.Time(aws.ToTime(aws.Time(aws.ToTime(nil)))), // Last 24 hours
-		EndTime:    aws.Time(aws.ToTime(nil)),
+		StartTime:  aws.Time(startTime),
+		EndTime:    aws.Time(now),
 		Period:     aws.Int32(3600), // 1 hour
 		Statistics: []cwTypes.Statistic{cwTypes.StatisticSum},
 	})
@@ -309,4 +352,197 @@ func (s *service) checkRapidProvisioning(ctx context.Context) ([]AIRisk, error) 
 	}
 
 	return risks, nil
+}
+
+// checkLateralMovement detects cross-service lateral movement patterns
+func (s *service) checkLateralMovement(ctx context.Context) ([]AIRisk, error) {
+	var risks []AIRisk
+
+	now := time.Now()
+	startTime := now.Add(-1 * time.Hour) // Last hour
+
+	// Track role assumptions per principal
+	principalRoleAssumptions := make(map[string]int)
+
+	for _, action := range lateralMovementActions {
+		events, err := s.cloudtrailClient.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
+			StartTime: aws.Time(startTime),
+			EndTime:   aws.Time(now),
+			LookupAttributes: []ctTypes.LookupAttribute{
+				{
+					AttributeKey:   ctTypes.LookupAttributeKeyEventName,
+					AttributeValue: aws.String(action),
+				},
+			},
+			MaxResults: aws.Int32(50),
+		})
+
+		if err != nil {
+			continue
+		}
+
+		for _, event := range events.Events {
+			principal := aws.ToString(event.Username)
+			if principal != "" {
+				principalRoleAssumptions[principal]++
+			}
+		}
+	}
+
+	// Flag principals with excessive role assumptions (>5 in 1 hour)
+	for principal, count := range principalRoleAssumptions {
+		if count > 5 {
+			risks = append(risks, AIRisk{
+				RiskType:       "LateralMovement",
+				Severity:       SeverityHigh,
+				Resource:       principal,
+				Description:    "Principal assumed " + string(rune(count+'0')) + "+ roles in 1 hour - possible lateral movement",
+				Recommendation: "Review CloudTrail for this principal; verify legitimate automation or investigate compromise",
+			})
+		}
+	}
+
+	return risks, nil
+}
+
+// checkRapidAdminAccess detects rapid privilege escalation patterns
+func (s *service) checkRapidAdminAccess(ctx context.Context) ([]AIRisk, error) {
+	var risks []AIRisk
+
+	now := time.Now()
+	startTime := now.Add(-15 * time.Minute) // Last 15 minutes - rapid attack window
+
+	// Track admin actions per principal
+	principalAdminActions := make(map[string][]string)
+
+	for _, action := range adminActions {
+		events, err := s.cloudtrailClient.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
+			StartTime: aws.Time(startTime),
+			EndTime:   aws.Time(now),
+			LookupAttributes: []ctTypes.LookupAttribute{
+				{
+					AttributeKey:   ctTypes.LookupAttributeKeyEventName,
+					AttributeValue: aws.String(action),
+				},
+			},
+			MaxResults: aws.Int32(20),
+		})
+
+		if err != nil {
+			continue
+		}
+
+		for _, event := range events.Events {
+			principal := aws.ToString(event.Username)
+			if principal != "" {
+				principalAdminActions[principal] = append(principalAdminActions[principal], action)
+			}
+		}
+	}
+
+	// Flag principals with multiple admin actions in short timeframe
+	for principal, actions := range principalAdminActions {
+		if len(actions) >= 3 {
+			actionList := strings.Join(actions[:min(3, len(actions))], ", ")
+			risks = append(risks, AIRisk{
+				RiskType:       "RapidAdminAccess",
+				Severity:       SeverityCritical,
+				Resource:       principal,
+				Description:    "Principal performed " + string(rune(len(actions)+'0')) + " admin actions in 15 min: " + actionList,
+				Recommendation: "URGENT: Verify this is authorized; may indicate active privilege escalation attack",
+			})
+		}
+	}
+
+	return risks, nil
+}
+
+// checkCloudTrailGaps detects CloudTrail logging gaps that attackers exploit
+func (s *service) checkCloudTrailGaps(ctx context.Context) ([]AIRisk, error) {
+	var risks []AIRisk
+
+	// Check for StopLogging events (attacker covering tracks)
+	now := time.Now()
+	startTime := now.Add(-24 * time.Hour)
+
+	stopLoggingEvents, err := s.cloudtrailClient.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
+		StartTime: aws.Time(startTime),
+		EndTime:   aws.Time(now),
+		LookupAttributes: []ctTypes.LookupAttribute{
+			{
+				AttributeKey:   ctTypes.LookupAttributeKeyEventName,
+				AttributeValue: aws.String("StopLogging"),
+			},
+		},
+		MaxResults: aws.Int32(10),
+	})
+
+	if err == nil && len(stopLoggingEvents.Events) > 0 {
+		for _, event := range stopLoggingEvents.Events {
+			risks = append(risks, AIRisk{
+				RiskType:       "CloudTrailStopped",
+				Severity:       SeverityCritical,
+				Resource:       aws.ToString(event.Username),
+				Description:    "CloudTrail logging was stopped - possible attack cover-up",
+				Recommendation: "URGENT: Investigate immediately; this is a common attacker technique",
+			})
+		}
+	}
+
+	// Check for DeleteTrail events
+	deleteTrailEvents, err := s.cloudtrailClient.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
+		StartTime: aws.Time(startTime),
+		EndTime:   aws.Time(now),
+		LookupAttributes: []ctTypes.LookupAttribute{
+			{
+				AttributeKey:   ctTypes.LookupAttributeKeyEventName,
+				AttributeValue: aws.String("DeleteTrail"),
+			},
+		},
+		MaxResults: aws.Int32(10),
+	})
+
+	if err == nil && len(deleteTrailEvents.Events) > 0 {
+		for _, event := range deleteTrailEvents.Events {
+			risks = append(risks, AIRisk{
+				RiskType:       "CloudTrailDeleted",
+				Severity:       SeverityCritical,
+				Resource:       aws.ToString(event.Username),
+				Description:    "CloudTrail trail was deleted - possible attack cover-up",
+				Recommendation: "URGENT: Investigate immediately; attacker may be erasing evidence",
+			})
+		}
+	}
+
+	// Check for UpdateTrail events that might disable logging
+	updateTrailEvents, err := s.cloudtrailClient.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
+		StartTime: aws.Time(startTime),
+		EndTime:   aws.Time(now),
+		LookupAttributes: []ctTypes.LookupAttribute{
+			{
+				AttributeKey:   ctTypes.LookupAttributeKeyEventName,
+				AttributeValue: aws.String("UpdateTrail"),
+			},
+		},
+		MaxResults: aws.Int32(10),
+	})
+
+	if err == nil && len(updateTrailEvents.Events) > 0 {
+		risks = append(risks, AIRisk{
+			RiskType:       "CloudTrailModified",
+			Severity:       SeverityHigh,
+			Resource:       "CloudTrail",
+			Description:    "CloudTrail configuration was modified recently",
+			Recommendation: "Verify trail changes were authorized and logging is still comprehensive",
+		})
+	}
+
+	return risks, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -183,7 +183,7 @@
 
 ---
 
-## 🤖 AI Attack Detection (7 Rules)
+## 🤖 AI Attack Detection (10 Rules)
 
 *Based on Feb 2025 threat intelligence: 8-minute AWS breach using AI*
 
@@ -196,6 +196,9 @@
 | **Custom Bedrock Model** | Medium | Unauthorized custom model training detected |
 | **No Bedrock Logging** | High | Model invocation logging disabled - abuse goes undetected |
 | **Rapid API Activity** | High | EC2 API throttling - indicates automated attack patterns |
+| **Lateral Movement** | High | >5 role assumptions in 1 hour - cross-service movement |
+| **Rapid Admin Access** | Critical | Multiple admin IAM actions in 15 min - privilege escalation |
+| **CloudTrail Gaps** | Critical | StopLogging/DeleteTrail/UpdateTrail - covering tracks |
 
 ---
 
@@ -215,8 +218,8 @@
 | ECS Security | 10 | ✅ |
 | EKS Security | 12 | ✅ |
 | Extended | 15 | ✅ |
-| AI Attack Detection | 7 | ✅ |
-| **Total** | **102** | ✅ |
+| AI Attack Detection | 10 | ✅ |
+| **Total** | **105** | ✅ |
 
 ---
 
