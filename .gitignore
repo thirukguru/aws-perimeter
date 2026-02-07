@@ -1,0 +1,9 @@
+# Generated reports
+reports/*.html
+
+# Binary output
+bin/
+archive
+assets
+dist/
+

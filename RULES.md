@@ -1,0 +1,174 @@
+# AWS Perimeter Security Rules
+
+**All rules implemented are production-ready** and based on real-world AWS security best practices, AWS threat intelligence, and industry-standard security frameworks.
+
+---
+
+## 🔒 VPC Security (10 Rules)
+
+| Rule | Description |
+|------|-------------|
+| **Security Group Risks** | Detects overly permissive security groups with 0.0.0.0/0 access on risky ports (SSH, RDP, DB) |
+| **Unused Security Groups** | Identifies security groups not attached to any resources (cleanup candidates) |
+| **Public Exposure** | Finds EC2 instances with public IPs and open ports exposed to the internet |
+| **NACL Risks** | Detects Network ACLs with overly permissive allow-all rules |
+| **VPC Flow Logs** | Checks if VPC flow logs are enabled for network traffic monitoring |
+| **Management Port Exposure** | Finds management ports (SSH/RDP/admin) exposed to internet - based on GRU Sandworm campaign |
+| **Plaintext Protocols** | Detects unencrypted protocols (Telnet, FTP, HTTP) allowed - credential harvesting risk |
+| **IMDSv1 Enabled** | Finds EC2 instances using IMDSv1 which enables SSRF credential theft attacks |
+| **Network Appliance Risks** | Detects exposed VPN/firewall appliances (Cisco, Palo Alto, etc.) - nation-state targets |
+| **Management Subnet Risks** | Identifies management interfaces in public subnets |
+
+---
+
+## 👤 IAM Security (8 Rules)
+
+| Rule | Description |
+|------|-------------|
+| **Privilege Escalation** | Detects IAM policies that allow privilege escalation paths (CreateAccessKey, PassRole, etc.) |
+| **Users Without MFA** | Finds console users without multi-factor authentication enabled |
+| **Stale Credentials** | Identifies access keys and passwords not used or rotated in 90+ days |
+| **Cross-Account Trusts** | Analyzes role trust policies for external account access and wildcard principals |
+| **Overly Permissive Policies** | Detects policies with dangerous permissions (*, admin access) |
+| **Missing Permission Boundaries** | Finds privileged principals without permission boundaries |
+| **Unused Admin Roles** | Identifies admin roles not used recently - targets for credential abuse |
+| **Quarantined Users** | Detects users that appear quarantined (indicators of past compromise) |
+
+---
+
+## 📦 S3 Security (4 Rules)
+
+| Rule | Description |
+|------|-------------|
+| **Public Buckets** | Detects buckets with public access enabled or public ACLs |
+| **Unencrypted Buckets** | Finds buckets without default encryption configured |
+| **Risky Bucket Policies** | Analyzes policies for overly permissive access (Principal: *, Action: *) |
+| **Sensitive File Exposure** | Scans for exposed sensitive files (.env, .git, credentials) - based on EmeraldWhale campaign |
+
+---
+
+## 📋 CloudTrail Security (3 Rules)
+
+| Rule | Description |
+|------|-------------|
+| **Recent Role Creations** | Monitors for IAM role creation - attackers create backdoor roles for persistence |
+| **Suspicious API Activity** | Detects unusual API patterns indicating potential compromise |
+| **Root Account Usage** | Alerts on any root account API activity - should use IAM users/roles |
+
+---
+
+## 🔑 Secrets Detection (3 Rules)
+
+| Rule | Description |
+|------|-------------|
+| **Lambda Environment Variables** | Scans Lambda env vars for hardcoded secrets (AWS keys, API keys, tokens) |
+| **EC2 User Data** | Checks EC2 instance user data for embedded credentials |
+| **Public S3 Objects** | Scans text files in public buckets for exposed secrets |
+
+---
+
+## 🛡️ Advanced Security Services (4 Rules)
+
+| Rule | Description |
+|------|-------------|
+| **Security Hub Status** | Checks if AWS Security Hub is enabled for centralized findings |
+| **Security Hub Findings** | Reports critical/high Security Hub findings |
+| **GuardDuty Status** | Checks if GuardDuty is enabled for threat detection |
+| **GuardDuty Findings** | Reports active GuardDuty threat findings |
+
+---
+
+## 🌐 CloudFront Security (6 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **HTTP Traffic Allowed** | Detects distributions allowing unencrypted HTTP traffic |
+| **Weak TLS Version** | Finds distributions using TLS < 1.2 |
+| **No WAF Association** | CloudFront not protected by AWS WAF |
+| **Access Logging Disabled** | No access logs for security monitoring |
+| **HTTP to Origin** | Insecure origin protocol configuration |
+| **No Geo-Restriction** | No geographic restrictions configured |
+
+---
+
+## 🚪 API Gateway Security (10 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **No Authorization (REST)** | REST API methods without authentication |
+| **No Authorization (HTTP)** | HTTP API routes without authentication |
+| **No WAF** | API Gateway not protected by WAF |
+| **No Access Logging** | Access logging disabled |
+| **Permissive Policy** | Resource policy with Principal: * |
+| **CORS Wildcard** | Allows requests from all origins |
+| **No Throttling** | No rate limiting configured |
+| **No Client Certificate** | Missing mTLS for backend |
+| **No API Key** | Sensitive endpoints without API key |
+| **No X-Ray Tracing** | Observability disabled |
+
+---
+
+## 🗄️ Aurora/RDS Security (10 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **No Encryption** | Database not encrypted at rest |
+| **Publicly Accessible** | Database accessible from internet |
+| **Low Backup Retention** | Backup retention < 7 days |
+| **No Deletion Protection** | Deletion protection disabled |
+| **No IAM Authentication** | Using password-only auth |
+| **Single Instance** | No Multi-AZ deployment |
+| **No Auto Upgrade** | Minor version auto-upgrade disabled |
+| **No Performance Insights** | Performance monitoring disabled |
+| **No Log Export** | CloudWatch log export disabled |
+| **No Copy Tags** | Tags not copied to snapshots |
+
+---
+
+## 🔧 Extended Checks (15 Rules)
+
+| Rule | Description |
+|------|-------------|
+| **ALB Security** | Detects ALBs without WAF, HTTPS, or access logs |
+| **ALB Listener Risks** | Finds HTTP listeners without redirect to HTTPS |
+| **Lambda Permissive Roles** | Identifies Lambda functions with overly broad IAM permissions |
+| **AWS Config Status** | Checks if AWS Config is enabled for compliance tracking |
+| **EBS Default Encryption** | Verifies EBS default encryption is enabled |
+| **KMS Key Rotation** | Ensures customer-managed KMS keys have rotation enabled |
+| **RDS Security** | Detects public RDS, unencrypted databases, missing backups |
+| **DynamoDB Protection** | Checks for PITR and deletion protection settings |
+| **Secret Rotation** | Identifies Secrets Manager secrets without rotation |
+| **VPC Endpoint Risks** | Analyzes VPC endpoint policies for overly permissive access |
+| **NAT Gateway HA** | Detects single-AZ NAT Gateway configurations |
+| **VPC Peering Risks** | Analyzes VPC peering for security concerns |
+| **Bastion Hosts** | Detects bastion/jump hosts in the environment |
+| **Role Chain Risks** | Identifies IAM role assumption chains that could be abused |
+| **External ID Missing** | Finds cross-account roles without external ID requirement |
+
+---
+
+## 📊 Summary
+
+| Category | Rule Count | Production Ready |
+|----------|------------|------------------|
+| VPC Security | 10 | ✅ |
+| IAM Security | 8 | ✅ |
+| S3 Security | 4 | ✅ |
+| CloudTrail | 3 | ✅ |
+| Secrets | 3 | ✅ |
+| Advanced | 4 | ✅ |
+| CloudFront | 6 | ✅ |
+| API Gateway | 10 | ✅ |
+| Aurora/RDS | 10 | ✅ |
+| Extended | 15 | ✅ |
+| **Total** | **73** | ✅ |
+
+---
+
+## 🔗 Threat Intelligence References
+
+Many rules are based on real-world attack patterns:
+- **GRU Sandworm Campaign** - Network edge device targeting
+- **EmeraldWhale Campaign** - S3 bucket credential harvesting
+- **ShinyHunters/Nemesis** - IAM privilege escalation patterns
+- **AWS Security Best Practices** - CIS Benchmarks, AWS Well-Architected Framework
