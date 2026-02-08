@@ -2,11 +2,11 @@ package output
 
 import (
 	"github.com/thirukguru/aws-perimeter/model"
-	extratables "github.com/thirukguru/aws-perimeter/utils/extra_tables"
-	iamtable "github.com/thirukguru/aws-perimeter/utils/iam_table"
-	jsonoutput "github.com/thirukguru/aws-perimeter/utils/json_output"
-	securitytable "github.com/thirukguru/aws-perimeter/utils/security_table"
-	"github.com/thirukguru/aws-perimeter/utils/spinner"
+	extratables "github.com/thirukguru/aws-perimeter/shared/extra_tables"
+	iamtable "github.com/thirukguru/aws-perimeter/shared/iam_table"
+	jsonoutput "github.com/thirukguru/aws-perimeter/shared/json_output"
+	securitytable "github.com/thirukguru/aws-perimeter/shared/security_table"
+	"github.com/thirukguru/aws-perimeter/shared/spinner"
 )
 
 // Format represents the output format type

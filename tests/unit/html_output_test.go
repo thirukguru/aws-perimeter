@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	htmloutput "github.com/thirukguru/aws-perimeter/utils/html_output"
+	htmloutput "github.com/thirukguru/aws-perimeter/shared/html_output"
 )
 
 // TestGenerateHTMLReport tests basic HTML report generation

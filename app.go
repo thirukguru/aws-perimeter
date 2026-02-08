@@ -38,8 +38,8 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/vpc"
 	"github.com/thirukguru/aws-perimeter/service/vpcadvanced"
 	"github.com/thirukguru/aws-perimeter/service/vpcendpoints"
-	"github.com/thirukguru/aws-perimeter/utils/banner"
-	"github.com/thirukguru/aws-perimeter/utils/spinner"
+	"github.com/thirukguru/aws-perimeter/shared/banner"
+	"github.com/thirukguru/aws-perimeter/shared/spinner"
 )
 
 var (

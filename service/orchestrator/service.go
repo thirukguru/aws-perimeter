@@ -35,8 +35,8 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/vpc"
 	"github.com/thirukguru/aws-perimeter/service/vpcadvanced"
 	"github.com/thirukguru/aws-perimeter/service/vpcendpoints"
-	extratables "github.com/thirukguru/aws-perimeter/utils/extra_tables"
-	htmloutput "github.com/thirukguru/aws-perimeter/utils/html_output"
+	extratables "github.com/thirukguru/aws-perimeter/shared/extra_tables"
+	htmloutput "github.com/thirukguru/aws-perimeter/shared/html_output"
 	"golang.org/x/sync/errgroup"
 )
 

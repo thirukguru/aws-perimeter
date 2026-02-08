@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/thirukguru/aws-perimeter/utils/ansi"
-	"github.com/thirukguru/aws-perimeter/utils/console"
+	"github.com/thirukguru/aws-perimeter/shared/ansi"
+	"github.com/thirukguru/aws-perimeter/shared/console"
 	"golang.org/x/term"
 )
 
