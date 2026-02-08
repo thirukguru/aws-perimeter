@@ -251,6 +251,32 @@ The following read-only permissions are required:
 
 > **Tip**: For a quick start, attach the AWS managed policy `arn:aws:iam::aws:policy/ReadOnlyAccess` to your IAM user/role.
 
+## Roadmap
+
+### Phase 3: Advanced Threat Detection
+- [ ] STRIDE threat modeling
+- [ ] Attack path analysis
+- [ ] Data exfiltration detection
+- [ ] Crypto-mining indicators
+
+### Phase 4: Enterprise Features
+- [ ] Multi-account Organizations support
+- [ ] CI/CD integration
+- [ ] SIEM export (Splunk, ELK)
+- [ ] Historical trending
+
+---
+
+### Summary
+
+| Phase | Status | Rules |
+|-------|--------|-------|
+| Phase 1 | ✅ Complete | 73 |
+| Phase 2 | 🔲 In Progress | +20 |
+| Phase 2.5 | 🆕 AI Attack Detection | +13 |
+| Phase 3 | 🔲 Planned | +15 |
+| Phase 4 | 🔲 Planned | Features |
+
 ## License
 
 Apache License 2.0
