@@ -2,44 +2,15 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"github.com/thirukguru/aws-perimeter/model"
-	"github.com/thirukguru/aws-perimeter/service/aidetection"
-	"github.com/thirukguru/aws-perimeter/service/apigateway"
-	awsconfig "github.com/thirukguru/aws-perimeter/service/aws_config"
-	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
-	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
-	"github.com/thirukguru/aws-perimeter/service/config"
-	"github.com/thirukguru/aws-perimeter/service/dataprotection"
-	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
-	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
-	"github.com/thirukguru/aws-perimeter/service/elb"
 	"github.com/thirukguru/aws-perimeter/service/flag"
-	"github.com/thirukguru/aws-perimeter/service/governance"
-	"github.com/thirukguru/aws-perimeter/service/guardduty"
-	"github.com/thirukguru/aws-perimeter/service/iam"
-	"github.com/thirukguru/aws-perimeter/service/iamadvanced"
-	"github.com/thirukguru/aws-perimeter/service/inspector"
-	"github.com/thirukguru/aws-perimeter/service/lambdasecurity"
-	"github.com/thirukguru/aws-perimeter/service/logging"
-	"github.com/thirukguru/aws-perimeter/service/messaging"
 	"github.com/thirukguru/aws-perimeter/service/orchestrator"
 	"github.com/thirukguru/aws-perimeter/service/output"
-	"github.com/thirukguru/aws-perimeter/service/resourcepolicy"
-	"github.com/thirukguru/aws-perimeter/service/route53"
-	"github.com/thirukguru/aws-perimeter/service/s3security"
-	"github.com/thirukguru/aws-perimeter/service/secrets"
-	"github.com/thirukguru/aws-perimeter/service/securityhub"
-	"github.com/thirukguru/aws-perimeter/service/shield"
-	awssts "github.com/thirukguru/aws-perimeter/service/sts"
-	"github.com/thirukguru/aws-perimeter/service/vpc"
-	"github.com/thirukguru/aws-perimeter/service/vpcadvanced"
-	"github.com/thirukguru/aws-perimeter/service/vpcendpoints"
+	"github.com/thirukguru/aws-perimeter/service/storage"
 	"github.com/thirukguru/aws-perimeter/shared/banner"
-	"github.com/thirukguru/aws-perimeter/shared/spinner"
 )
 
 var (
@@ -56,18 +27,20 @@ func main() {
 }
 
 func run() error {
-	flagService := flag.NewService()
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "db", "history", "dashboard":
+			return runStorageCommand(os.Args[1], os.Args[2:])
+		}
+	}
 
+	flagService := flag.NewService()
 	flags, err := flagService.GetParsedFlags()
 	if err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
 	}
 
-	versionInfo := model.VersionInfo{
-		Version: version,
-		Commit:  commit,
-		Date:    date,
-	}
+	versionInfo := model.VersionInfo{Version: version, Commit: commit, Date: date}
 
 	if flags.Version {
 		outputService := output.NewService(flags.Output)
@@ -75,98 +48,50 @@ func run() error {
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			outputService, versionInfo,
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil, nil, // ECS/EKS services
-			nil, // AI detection
+			nil, nil,
+			nil,
+			nil,
 		)
-
 		return orchestratorService.Orchestrate(flags)
 	}
 
 	banner.DrawBannerTitle()
 
-	cfgService := awsconfig.NewService()
-
-	awsCfg, err := cfgService.GetAWSCfg(context.Background(), flags.Region, flags.Profile)
-	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+	var storageService storage.Service
+	if flags.Store || flags.Trends || flags.Compare || flags.ExportJSON != "" || flags.ExportCSV != "" {
+		storageService, err = storage.NewService(flags.DBPath)
+		if err != nil {
+			return fmt.Errorf("failed to initialize storage: %w", err)
+		}
+		defer storageService.Close()
 	}
 
-	spinner.StartSpinner()
-
-	defer spinner.StopSpinner()
-
-	// Initialize core services
-	stsService := awssts.NewService(awsCfg)
-	vpcService := vpc.NewService(awsCfg)
-	iamService := iam.NewService(awsCfg)
-	s3Service := s3security.NewService(awsCfg)
-	cloudtrailService := cloudtrail.NewService(awsCfg)
-	secretsService := secrets.NewService(awsCfg)
-	securityhubSvc := securityhub.NewService(awsCfg)
-	guarddutyService := guardduty.NewService(awsCfg)
-	apigatewayService := apigateway.NewService(awsCfg)
-	resourcePolSvc := resourcepolicy.NewService(awsCfg)
-	outputService := output.NewService(flags.Output)
-
-	// Initialize extended security services
-	shieldService := shield.NewService(awsCfg)
-	elbService := elb.NewService(awsCfg)
-	route53Service := route53.NewService(awsCfg)
-	inspectorService := inspector.NewService(awsCfg)
-	lambdaSecService := lambdasecurity.NewService(awsCfg)
-	messagingService := messaging.NewService(awsCfg)
-	cloudtrailSecService := cloudtrailsecurity.NewService(awsCfg)
-	configService := config.NewService(awsCfg)
-	dataprotectionSvc := dataprotection.NewService(awsCfg)
-	loggingService := logging.NewService(awsCfg)
-	governanceService := governance.NewService(awsCfg)
-	vpcEndpointsService := vpcendpoints.NewService(awsCfg)
-	vpcAdvancedService := vpcadvanced.NewService(awsCfg)
-	iamAdvancedService := iamadvanced.NewService(awsCfg)
-	// Container security services
-	ecsSecService := ecssecurity.NewService(awsCfg)
-	eksSecService := ekssecurity.NewService(awsCfg)
-	// AI attack detection
-	aiDetectionService := aidetection.NewService(awsCfg)
-
-	orchestratorService := orchestrator.NewService(
-		stsService,
-		vpcService,
-		iamService,
-		s3Service,
-		cloudtrailService,
-		secretsService,
-		securityhubSvc,
-		guarddutyService,
-		apigatewayService,
-		resourcePolSvc,
-		outputService,
-		versionInfo,
-		// Extended services
-		shieldService,
-		elbService,
-		route53Service,
-		inspectorService,
-		lambdaSecService,
-		messagingService,
-		cloudtrailSecService,
-		configService,
-		dataprotectionSvc,
-		loggingService,
-		governanceService,
-		vpcEndpointsService,
-		vpcAdvancedService,
-		iamAdvancedService,
-		// Container security
-		ecsSecService,
-		eksSecService,
-		// AI attack detection
-		aiDetectionService,
-	)
-
-	if err := orchestratorService.Orchestrate(flags); err != nil {
-		return fmt.Errorf("security scan failed: %w", err)
+	if flags.Trends {
+		if storageService == nil {
+			return fmt.Errorf("--trends requires initialized storage")
+		}
+		accountID, err := getAccountIDForFlags(flags)
+		if err != nil {
+			return fmt.Errorf("failed to get account ID for trends: %w", err)
+		}
+		return runTrendWorkflow(storageService, struct {
+			TrendDays  int
+			Compare    bool
+			ExportJSON string
+			ExportCSV  string
+			AccountID  string
+		}{
+			TrendDays:  flags.TrendDays,
+			Compare:    flags.Compare,
+			ExportJSON: flags.ExportJSON,
+			ExportCSV:  flags.ExportCSV,
+			AccountID:  accountID,
+		})
 	}
 
-	return nil
+	if flags.AllRegions || len(flags.Regions) > 0 {
+		return runMultiRegionScans(flags, versionInfo, storageService)
+	}
+
+	return runRegionScan(flags, versionInfo, storageService)
 }

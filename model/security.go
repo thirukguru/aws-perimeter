@@ -7,6 +7,7 @@ import (
 // SecurityReportJSON represents the JSON output for security analysis.
 type SecurityReportJSON struct {
 	AccountID            string                  `json:"account_id"`
+	Region               string                  `json:"region,omitempty"`
 	GeneratedAt          string                  `json:"generated_at"`
 	HasFindings          bool                    `json:"has_findings"`
 	Summary              SecuritySummaryJSON     `json:"summary"`
@@ -149,6 +150,7 @@ type WAFCoverageJSON struct {
 // RenderSecurityInput represents the input data for rendering the security report.
 type RenderSecurityInput struct {
 	AccountID            string
+	Region               string
 	SecurityGroupRisks   []vpc.SGRisk
 	UnusedSecurityGroups []vpc.UnusedSG
 	PublicExposureRisks  []vpc.ExposureRisk

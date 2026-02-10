@@ -4,6 +4,17 @@
 
 ---
 
+## 🚀 Execution Modes
+
+| Mode | Description |
+|------|-------------|
+| **Single Region** | Run against one region using `--region` (or SDK/default region resolution) |
+| **Multi Region** | Run the same rule set across multiple regions with `--regions` or `--all-regions` |
+| **Historical Storage** | Persist findings/lifecycle in SQLite with `--store` and review using `--trends` / `history` commands |
+| **Dashboard/API** | Local dashboard and APIs (`dashboard`, `/api/trends`, `/api/scans`, `/api/findings`) built from stored scan history |
+
+---
+
 ## 🔒 VPC Security (10 Rules)
 
 | Rule | Description |

@@ -26,6 +26,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/secrets"
 	"github.com/thirukguru/aws-perimeter/service/securityhub"
 	"github.com/thirukguru/aws-perimeter/service/shield"
+	"github.com/thirukguru/aws-perimeter/service/storage"
 	awssts "github.com/thirukguru/aws-perimeter/service/sts"
 	"github.com/thirukguru/aws-perimeter/service/vpc"
 	"github.com/thirukguru/aws-perimeter/service/vpcadvanced"
@@ -66,6 +67,8 @@ type service struct {
 	eksSecService ekssecurity.Service
 	// AI attack detection
 	aiDetectionService aidetection.Service
+	// Historical storage
+	storageService storage.Service
 }
 
 // Service is the interface for orchestrator service.

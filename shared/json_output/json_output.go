@@ -17,6 +17,7 @@ func OutputSecurityJSON(input model.RenderSecurityInput) error {
 
 	output := model.SecurityReportJSON{
 		AccountID:   input.AccountID,
+		Region:      input.Region,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		HasFindings: totalFindings > 0,
 		Summary: model.SecuritySummaryJSON{
@@ -195,6 +196,7 @@ func OutputIAMJSON(input model.RenderIAMInput) error {
 
 	output := model.IAMReportJSON{
 		AccountID:   input.AccountID,
+		Region:      input.Region,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		HasFindings: totalFindings > 0,
 		Summary: model.IAMSummaryJSON{
@@ -341,6 +343,7 @@ func mapDangerousPolicies(policies []iamService.DangerousPolicy) []model.Dangero
 func OutputS3JSON(input model.RenderS3Input) error {
 	output := model.S3ReportJSON{
 		AccountID:   input.AccountID,
+		Region:      input.Region,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		HasFindings: len(input.PublicBuckets)+len(input.UnencryptedBkts)+len(input.RiskyPolicies) > 0,
 	}
@@ -381,6 +384,7 @@ func OutputS3JSON(input model.RenderS3Input) error {
 func OutputCloudTrailJSON(input model.RenderCloudTrailInput) error {
 	output := model.CloudTrailReportJSON{
 		AccountID:   input.AccountID,
+		Region:      input.Region,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		HasFindings: len(input.TrailGaps) > 0,
 	}
@@ -413,6 +417,7 @@ func OutputSecretsJSON(input model.RenderSecretsInput) error {
 
 	output := model.SecretsReportJSON{
 		AccountID:   input.AccountID,
+		Region:      input.Region,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		HasFindings: len(allSecrets) > 0,
 		TotalCount:  len(allSecrets),
@@ -440,6 +445,7 @@ func OutputAdvancedJSON(input model.RenderAdvancedInput) error {
 
 	output := model.AdvancedReportJSON{
 		AccountID:   input.AccountID,
+		Region:      input.Region,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 

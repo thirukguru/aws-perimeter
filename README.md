@@ -148,7 +148,13 @@ aws-perimeter                          # Run full security scan
 aws-perimeter --output json            # JSON output
 aws-perimeter --profile prod           # Specific AWS profile
 aws-perimeter --region us-west-2       # Specific region
-aws-perimeter --html report.html       # Generate HTML report
+aws-perimeter --regions us-east-1,us-west-2            # Multi-region scan
+aws-perimeter --all-regions                            # Scan all enabled regions
+aws-perimeter --output html --output-file report.html  # Generate HTML report
+aws-perimeter --store --profile prod --region us-west-2 # Run + persist scan
+aws-perimeter --trends --trend-days 30                 # Show historical trend table
+aws-perimeter history list --db-path ~/.aws-perimeter/history.db
+aws-perimeter dashboard --port 8080
 ```
 
 ## Flags
@@ -157,8 +163,21 @@ aws-perimeter --html report.html       # Generate HTML report
 |------|-------|-------------|
 | `--profile` | `-p` | AWS profile to use |
 | `--region` | `-r` | AWS region |
-| `--output` | `-o` | Output format: `table` or `json` |
-| `--html` | | Generate HTML report |
+| `--regions` | | Comma-separated regions |
+| `--all-regions` | | Scan all enabled regions |
+| `--org-scan` | | Scan organization accounts (planned wiring) |
+| `--output` | `-o` | Output format: `table`, `json`, or `html` |
+| `--output-file` | `-f` | Output file (required for html) |
+| `--store` | | Persist scan results in SQLite |
+| `--db-path` | | Custom SQLite DB path |
+| `--trends` | | Show historical trends |
+| `--trend-days` | | Trend window in days (default 30) |
+| `--compare` | | Compare two recent scans |
+| `--export-json` | | Export trends JSON file |
+| `--export-csv` | | Export trends CSV file |
+| `--dry-run` | | Remediation preview mode |
+| `--remediate` | | Apply supported remediations |
+| `--dashboard-port` | | Dashboard port (root flag; dashboard subcommand uses `--port`) |
 | `--version` | `-v` | Version information |
 
 ## Required AWS Permissions

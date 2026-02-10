@@ -5,6 +5,7 @@ import "github.com/thirukguru/aws-perimeter/service/iam"
 // RenderIAMInput contains all IAM security findings for rendering
 type RenderIAMInput struct {
 	AccountID                string
+	Region                   string
 	PrivilegeEscalation      []iam.PrivEscRisk
 	StaleCredentials         []iam.StaleCredential
 	CrossAccountTrusts       []iam.CrossAccountTrust
@@ -16,6 +17,7 @@ type RenderIAMInput struct {
 // IAMReportJSON represents the JSON output for IAM security report
 type IAMReportJSON struct {
 	AccountID                string                  `json:"account_id"`
+	Region                   string                  `json:"region,omitempty"`
 	GeneratedAt              string                  `json:"generated_at"`
 	HasFindings              bool                    `json:"has_findings"`
 	Summary                  IAMSummaryJSON          `json:"summary"`

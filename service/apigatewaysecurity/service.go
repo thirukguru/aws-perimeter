@@ -146,7 +146,7 @@ func (s *service) checkRESTAPIs(ctx context.Context) ([]APIGatewayRisk, error) {
 			}
 
 			// Check 5: X-Ray tracing disabled
-			if !aws.ToBool(stage.TracingEnabled) {
+			if !stage.TracingEnabled {
 				risks = append(risks, APIGatewayRisk{
 					APIID:          apiID,
 					APIName:        apiName,

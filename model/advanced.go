@@ -10,6 +10,7 @@ import (
 // RenderAdvancedInput contains advanced security findings
 type RenderAdvancedInput struct {
 	AccountID string
+	Region    string
 
 	// Security Hub
 	HubStatus    *securityhub.HubStatus
@@ -34,6 +35,7 @@ type RenderAdvancedInput struct {
 // AdvancedReportJSON represents the JSON output for advanced security checks
 type AdvancedReportJSON struct {
 	AccountID   string `json:"account_id"`
+	Region      string `json:"region,omitempty"`
 	GeneratedAt string `json:"generated_at"`
 
 	// Security Hub

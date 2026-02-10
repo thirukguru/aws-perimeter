@@ -4,6 +4,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/thirukguru/aws-perimeter/model"
@@ -31,6 +32,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/secrets"
 	"github.com/thirukguru/aws-perimeter/service/securityhub"
 	"github.com/thirukguru/aws-perimeter/service/shield"
+	"github.com/thirukguru/aws-perimeter/service/storage"
 	awssts "github.com/thirukguru/aws-perimeter/service/sts"
 	"github.com/thirukguru/aws-perimeter/service/vpc"
 	"github.com/thirukguru/aws-perimeter/service/vpcadvanced"
@@ -74,6 +76,8 @@ func NewService(
 	eksSecService ekssecurity.Service,
 	// AI attack detection
 	aiDetectionService aidetection.Service,
+	// Historical storage
+	storageService storage.Service,
 ) Service {
 	return &service{
 		stsService:           stsService,
@@ -105,6 +109,7 @@ func NewService(
 		ecsSecService:        ecsSecService,
 		eksSecService:        eksSecService,
 		aiDetectionService:   aiDetectionService,
+		storageService:       storageService,
 	}
 }
 
@@ -127,8 +132,9 @@ func (s *service) versionWorkflow() error {
 }
 
 func (s *service) securityWorkflow(flags model.Flags) error {
-	ctx := context.Background()
-	g, ctx := errgroup.WithContext(ctx)
+	startedAt := time.Now()
+	scanCtx := context.Background()
+	g, groupCtx := errgroup.WithContext(scanCtx)
 
 	// VPC Security Results
 	var (
@@ -235,187 +241,187 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	// Fetch caller identity first
 	g.Go(func() error {
 		var err error
-		stsResult, err = s.stsService.GetCallerIdentity(ctx)
+		stsResult, err = s.stsService.GetCallerIdentity(groupCtx)
 		return err
 	})
 
 	// VPC Security Checks
 	g.Go(func() error {
 		var err error
-		sgRisks, err = s.vpcService.GetSecurityGroupRisks(ctx)
+		sgRisks, err = s.vpcService.GetSecurityGroupRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		unusedSGs, err = s.vpcService.GetUnusedSecurityGroups(ctx)
+		unusedSGs, err = s.vpcService.GetUnusedSecurityGroups(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		exposureRisks, err = s.vpcService.GetPublicExposureRisks(ctx)
+		exposureRisks, err = s.vpcService.GetPublicExposureRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		naclRisks, err = s.vpcService.GetNACLRisks(ctx)
+		naclRisks, err = s.vpcService.GetNACLRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		flowLogStatus, err = s.vpcService.GetVPCFlowLogStatus(ctx)
+		flowLogStatus, err = s.vpcService.GetVPCFlowLogStatus(groupCtx)
 		return err
 	})
 
 	// Phase T: Nation-State Threat Detection
 	g.Go(func() error {
 		var err error
-		mgmtExposure, err = s.vpcService.GetManagementExposureRisks(ctx)
+		mgmtExposure, err = s.vpcService.GetManagementExposureRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		plaintextRisks, err = s.vpcService.GetPlaintextProtocolRisks(ctx)
+		plaintextRisks, err = s.vpcService.GetPlaintextProtocolRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		imdsv1Risks, err = s.vpcService.GetIMDSv1Risks(ctx)
+		imdsv1Risks, err = s.vpcService.GetIMDSv1Risks(groupCtx)
 		return err
 	})
 
 	// IAM Security Checks
 	g.Go(func() error {
 		var err error
-		privEscRisks, err = s.iamService.GetPrivilegeEscalationRisks(ctx)
+		privEscRisks, err = s.iamService.GetPrivilegeEscalationRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		staleCreds, err = s.iamService.GetStaleCredentials(ctx, 90)
+		staleCreds, err = s.iamService.GetStaleCredentials(groupCtx, 90)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		usersWithoutMFA, err = s.iamService.GetUsersWithoutMFA(ctx)
+		usersWithoutMFA, err = s.iamService.GetUsersWithoutMFA(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		dangerousPolicies, err = s.iamService.GetOverlyPermissivePolicies(ctx)
+		dangerousPolicies, err = s.iamService.GetOverlyPermissivePolicies(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		missingBoundaries, err = s.iamService.GetMissingBoundaries(ctx)
+		missingBoundaries, err = s.iamService.GetMissingBoundaries(groupCtx)
 		return err
 	})
 
 	// S3 Security Checks
 	g.Go(func() error {
 		var err error
-		publicBuckets, err = s.s3Service.GetPublicBuckets(ctx)
+		publicBuckets, err = s.s3Service.GetPublicBuckets(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		unencryptedBkts, err = s.s3Service.GetUnencryptedBuckets(ctx)
+		unencryptedBkts, err = s.s3Service.GetUnencryptedBuckets(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		riskyPolicies, err = s.s3Service.GetRiskyBucketPolicies(ctx)
+		riskyPolicies, err = s.s3Service.GetRiskyBucketPolicies(groupCtx)
 		return err
 	})
 
 	// CloudTrail Checks
 	g.Go(func() error {
 		var err error
-		trailStatus, err = s.cloudtrailService.GetTrailStatus(ctx)
+		trailStatus, err = s.cloudtrailService.GetTrailStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		trailGaps, err = s.cloudtrailService.GetTrailGaps(ctx)
+		trailGaps, err = s.cloudtrailService.GetTrailGaps(groupCtx)
 		return err
 	})
 
 	// Secrets Detection
 	g.Go(func() error {
 		var err error
-		lambdaSecrets, err = s.secretsService.ScanLambdaEnvVars(ctx)
+		lambdaSecrets, err = s.secretsService.ScanLambdaEnvVars(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		ec2Secrets, err = s.secretsService.ScanEC2UserData(ctx)
+		ec2Secrets, err = s.secretsService.ScanEC2UserData(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		s3Secrets, err = s.secretsService.ScanPublicS3Objects(ctx)
+		s3Secrets, err = s.secretsService.ScanPublicS3Objects(groupCtx)
 		return err
 	})
 
 	// Security Hub
 	g.Go(func() error {
 		var err error
-		hubStatus, err = s.securityhubSvc.GetHubStatus(ctx)
+		hubStatus, err = s.securityhubSvc.GetHubStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		hubStandards, err = s.securityhubSvc.GetStandardsStatus(ctx)
+		hubStandards, err = s.securityhubSvc.GetStandardsStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		hubFindings, err = s.securityhubSvc.GetCriticalFindings(ctx, 10)
+		hubFindings, err = s.securityhubSvc.GetCriticalFindings(groupCtx, 10)
 		return err
 	})
 
 	// GuardDuty
 	g.Go(func() error {
 		var err error
-		gdStatus, err = s.guarddutyService.GetDetectorStatus(ctx)
+		gdStatus, err = s.guarddutyService.GetDetectorStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		gdFindings, err = s.guarddutyService.GetThreatFindings(ctx, 10)
+		gdFindings, err = s.guarddutyService.GetThreatFindings(groupCtx, 10)
 		return err
 	})
 
 	// API Gateway
 	g.Go(func() error {
 		var err error
-		apiNoRateLimits, err = s.apigatewayService.GetAPIsWithoutRateLimits(ctx)
+		apiNoRateLimits, err = s.apigatewayService.GetAPIsWithoutRateLimits(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		apiNoAuth, err = s.apigatewayService.GetUnauthorizedRoutes(ctx)
+		apiNoAuth, err = s.apigatewayService.GetUnauthorizedRoutes(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		apiRisks, err = s.apigatewayService.GetAPIRisks(ctx)
+		apiRisks, err = s.apigatewayService.GetAPIRisks(groupCtx)
 		return err
 	})
 
 	// Resource-based Policies
 	g.Go(func() error {
 		var err error
-		lambdaPolicyRisks, err = s.resourcePolSvc.GetLambdaPolicyRisks(ctx)
+		lambdaPolicyRisks, err = s.resourcePolSvc.GetLambdaPolicyRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		sqsPolicyRisks, err = s.resourcePolSvc.GetSQSPolicyRisks(ctx)
+		sqsPolicyRisks, err = s.resourcePolSvc.GetSQSPolicyRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		snsPolicyRisks, err = s.resourcePolSvc.GetSNSPolicyRisks(ctx)
+		snsPolicyRisks, err = s.resourcePolSvc.GetSNSPolicyRisks(groupCtx)
 		return err
 	})
 
@@ -423,141 +429,141 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	// Shield/ELB
 	g.Go(func() error {
 		var err error
-		shieldStatus, err = s.shieldService.GetDDoSProtectionStatus(ctx)
+		shieldStatus, err = s.shieldService.GetDDoSProtectionStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		albRisks, err = s.elbService.GetALBSecurityRisks(ctx)
+		albRisks, err = s.elbService.GetALBSecurityRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		listenerRisks, err = s.elbService.GetListenerSecurityRisks(ctx)
+		listenerRisks, err = s.elbService.GetListenerSecurityRisks(groupCtx)
 		return err
 	})
 
 	// Lambda Security
 	g.Go(func() error {
 		var err error
-		lambdaRoles, err = s.lambdaSecService.GetOverlyPermissiveRoles(ctx)
+		lambdaRoles, err = s.lambdaSecService.GetOverlyPermissiveRoles(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		lambdaCrossReg, err = s.lambdaSecService.GetCrossRegionExecution(ctx)
+		lambdaCrossReg, err = s.lambdaSecService.GetCrossRegionExecution(groupCtx)
 		return err
 	})
 
 	// CloudTrail Security
 	g.Go(func() error {
 		var err error
-		roleCreations, err = s.cloudtrailSecService.GetRecentRoleCreations(ctx, 24)
+		roleCreations, err = s.cloudtrailSecService.GetRecentRoleCreations(groupCtx, 24)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		rootUsage, err = s.cloudtrailSecService.GetRootAccountUsage(ctx, 168) // 7 days
+		rootUsage, err = s.cloudtrailSecService.GetRootAccountUsage(groupCtx, 168) // 7 days
 		return err
 	})
 
 	// Config/KMS
 	g.Go(func() error {
 		var err error
-		configStatus, err = s.configService.GetConfigStatus(ctx)
+		configStatus, err = s.configService.GetConfigStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		ebsEncryption, err = s.configService.GetEBSEncryptionStatus(ctx)
+		ebsEncryption, err = s.configService.GetEBSEncryptionStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		kmsRotation, err = s.configService.GetKMSKeyRotationStatus(ctx)
+		kmsRotation, err = s.configService.GetKMSKeyRotationStatus(groupCtx)
 		return err
 	})
 
 	// Data Protection
 	g.Go(func() error {
 		var err error
-		rdsRisks, err = s.dataprotectionSvc.GetRDSSecurityRisks(ctx)
+		rdsRisks, err = s.dataprotectionSvc.GetRDSSecurityRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		dynamoRisks, err = s.dataprotectionSvc.GetDynamoDBRisks(ctx)
+		dynamoRisks, err = s.dataprotectionSvc.GetDynamoDBRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		secretRisks, err = s.dataprotectionSvc.GetSecretRotationRisks(ctx)
+		secretRisks, err = s.dataprotectionSvc.GetSecretRotationRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		backupStatus, err = s.dataprotectionSvc.GetBackupStatus(ctx)
+		backupStatus, err = s.dataprotectionSvc.GetBackupStatus(groupCtx)
 		return err
 	})
 
 	// VPC Endpoints
 	g.Go(func() error {
 		var err error
-		endpointStatus, err = s.vpcEndpointsService.GetEndpointStatus(ctx)
+		endpointStatus, err = s.vpcEndpointsService.GetEndpointStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		endpointRisks, err = s.vpcEndpointsService.GetEndpointRisks(ctx)
+		endpointRisks, err = s.vpcEndpointsService.GetEndpointRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		natStatus, err = s.vpcEndpointsService.GetNATStatus(ctx)
+		natStatus, err = s.vpcEndpointsService.GetNATStatus(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		missingEndpoints, err = s.vpcEndpointsService.GetMissingEndpoints(ctx)
+		missingEndpoints, err = s.vpcEndpointsService.GetMissingEndpoints(groupCtx)
 		return err
 	})
 
 	// VPC Advanced
 	g.Go(func() error {
 		var err error
-		peeringRisks, err = s.vpcAdvancedService.GetVPCPeeringRisks(ctx)
+		peeringRisks, err = s.vpcAdvancedService.GetVPCPeeringRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		bastionHosts, err = s.vpcAdvancedService.GetBastionHosts(ctx)
+		bastionHosts, err = s.vpcAdvancedService.GetBastionHosts(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		subnetClass, err = s.vpcAdvancedService.GetSubnetClassification(ctx)
+		subnetClass, err = s.vpcAdvancedService.GetSubnetClassification(groupCtx)
 		return err
 	})
 
 	// IAM Advanced
 	g.Go(func() error {
 		var err error
-		roleChainRisks, err = s.iamAdvancedService.GetRoleChainRisks(ctx)
+		roleChainRisks, err = s.iamAdvancedService.GetRoleChainRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		externalIDRisks, err = s.iamAdvancedService.GetExternalIDRisks(ctx)
+		externalIDRisks, err = s.iamAdvancedService.GetExternalIDRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		boundaryRisks, err = s.iamAdvancedService.GetPermissionBoundaryRisks(ctx)
+		boundaryRisks, err = s.iamAdvancedService.GetPermissionBoundaryRisks(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		instanceProfiles, err = s.iamAdvancedService.GetInstanceProfileRisks(ctx)
+		instanceProfiles, err = s.iamAdvancedService.GetInstanceProfileRisks(groupCtx)
 		return err
 	})
 
@@ -565,14 +571,14 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	g.Go(func() error {
 		var err error
 		if s.ecsSecService != nil {
-			ecsRisks, err = s.ecsSecService.GetECSRisks(ctx)
+			ecsRisks, err = s.ecsSecService.GetECSRisks(groupCtx)
 		}
 		return err
 	})
 	g.Go(func() error {
 		var err error
 		if s.eksSecService != nil {
-			eksRisks, err = s.eksSecService.GetEKSRisks(ctx)
+			eksRisks, err = s.eksSecService.GetEKSRisks(groupCtx)
 		}
 		return err
 	})
@@ -581,7 +587,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	g.Go(func() error {
 		var err error
 		if s.aiDetectionService != nil {
-			aiRisks, err = s.aiDetectionService.GetAIRisks(ctx)
+			aiRisks, err = s.aiDetectionService.GetAIRisks(groupCtx)
 		}
 		return err
 	})
@@ -592,18 +598,19 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	}
 
 	// Cross-account check needs account ID
-	crossAcctTrusts, _ = s.iamService.GetCrossAccountTrusts(ctx, *stsResult.Account)
+	crossAcctTrusts, _ = s.iamService.GetCrossAccountTrusts(scanCtx, *stsResult.Account)
 
 	s.outputService.StopSpinner()
 
 	// Print report header with Amazon orange color
 	orange := "\033[38;2;255;153;0m" // Amazon Orange #FF9900
 	reset := "\033[0m"
-	fmt.Printf("\n%s🔐 AWS Perimeter v%s - Security Posture Report - Account: %s%s\n", orange, s.versionInfo.Version, *stsResult.Account, reset)
+	fmt.Printf("\n%s🔐 AWS Perimeter v%s - Security Posture Report - Account: %s - Region: %s%s\n", orange, s.versionInfo.Version, *stsResult.Account, flags.Region, reset)
 
 	// Render all outputs
 	vpcInput := model.RenderSecurityInput{
 		AccountID:            *stsResult.Account,
+		Region:               flags.Region,
 		SecurityGroupRisks:   sgRisks,
 		UnusedSecurityGroups: unusedSGs,
 		PublicExposureRisks:  exposureRisks,
@@ -620,6 +627,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 
 	iamInput := model.RenderIAMInput{
 		AccountID:                *stsResult.Account,
+		Region:                   flags.Region,
 		PrivilegeEscalation:      privEscRisks,
 		StaleCredentials:         staleCreds,
 		CrossAccountTrusts:       crossAcctTrusts,
@@ -633,6 +641,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 
 	s3Input := model.RenderS3Input{
 		AccountID:       *stsResult.Account,
+		Region:          flags.Region,
 		PublicBuckets:   publicBuckets,
 		UnencryptedBkts: unencryptedBkts,
 		RiskyPolicies:   riskyPolicies,
@@ -643,6 +652,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 
 	ctInput := model.RenderCloudTrailInput{
 		AccountID:   *stsResult.Account,
+		Region:      flags.Region,
 		TrailStatus: trailStatus,
 		TrailGaps:   trailGaps,
 	}
@@ -652,6 +662,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 
 	secretsInput := model.RenderSecretsInput{
 		AccountID:     *stsResult.Account,
+		Region:        flags.Region,
 		LambdaSecrets: lambdaSecrets,
 		EC2Secrets:    ec2Secrets,
 		S3Secrets:     s3Secrets,
@@ -663,6 +674,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	// New checks
 	advInput := model.RenderAdvancedInput{
 		AccountID:         *stsResult.Account,
+		Region:            flags.Region,
 		HubStatus:         hubStatus,
 		HubStandards:      hubStandards,
 		HubFindings:       hubFindings,
@@ -709,6 +721,23 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		InstanceProfiles: instanceProfiles,
 	}
 	extratables.DrawExtendedSecurityTable(extInput)
+
+	if err := s.persistScanIfEnabled(
+		scanCtx,
+		flags,
+		*stsResult.Account,
+		flags.Region,
+		time.Since(startedAt),
+		vpcInput,
+		iamInput,
+		s3Input,
+		ctInput,
+		secretsInput,
+		advInput,
+		aiRisks,
+	); err != nil {
+		return fmt.Errorf("failed to persist scan: %w", err)
+	}
 
 	// Generate HTML report if requested
 	if flags.Output == "html" && flags.OutputFile != "" {

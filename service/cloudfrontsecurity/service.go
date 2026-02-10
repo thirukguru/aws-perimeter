@@ -120,8 +120,13 @@ func (s *service) GetCloudFrontRisks(ctx context.Context) ([]CloudFrontRisk, err
 				})
 			}
 
-			// Check 4: Access logging disabled
-			if dist.Logging != nil && !aws.ToBool(dist.Logging.Enabled) {
+			// Check 4: Access logging disabled (requires full distribution config)
+			configOut, err := s.cfClient.GetDistributionConfig(ctx, &cloudfront.GetDistributionConfigInput{
+				Id: dist.Id,
+			})
+			if err == nil && configOut != nil && configOut.DistributionConfig != nil &&
+				configOut.DistributionConfig.Logging != nil &&
+				!aws.ToBool(configOut.DistributionConfig.Logging.Enabled) {
 				risks = append(risks, CloudFrontRisk{
 					DistributionID: distID,
 					DomainName:     domainName,

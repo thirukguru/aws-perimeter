@@ -9,6 +9,7 @@ import (
 // RenderS3Input contains S3 security findings
 type RenderS3Input struct {
 	AccountID       string
+	Region          string
 	PublicBuckets   []s3security.BucketRisk
 	UnencryptedBkts []s3security.BucketEncryption
 	RiskyPolicies   []s3security.BucketPolicy
@@ -17,6 +18,7 @@ type RenderS3Input struct {
 // RenderCloudTrailInput contains CloudTrail findings
 type RenderCloudTrailInput struct {
 	AccountID   string
+	Region      string
 	TrailStatus []cloudtrail.TrailStatus
 	TrailGaps   []cloudtrail.TrailGap
 }
@@ -24,6 +26,7 @@ type RenderCloudTrailInput struct {
 // RenderSecretsInput contains secrets detection findings
 type RenderSecretsInput struct {
 	AccountID     string
+	Region        string
 	LambdaSecrets []secrets.SecretFinding
 	EC2Secrets    []secrets.SecretFinding
 	S3Secrets     []secrets.SecretFinding
@@ -32,6 +35,7 @@ type RenderSecretsInput struct {
 // S3ReportJSON represents S3 JSON output
 type S3ReportJSON struct {
 	AccountID       string             `json:"account_id"`
+	Region          string             `json:"region,omitempty"`
 	GeneratedAt     string             `json:"generated_at"`
 	HasFindings     bool               `json:"has_findings"`
 	PublicBuckets   []BucketRiskJSON   `json:"public_buckets"`
@@ -68,6 +72,7 @@ type BucketPolicyJSON struct {
 // CloudTrailReportJSON for JSON output
 type CloudTrailReportJSON struct {
 	AccountID   string         `json:"account_id"`
+	Region      string         `json:"region,omitempty"`
 	GeneratedAt string         `json:"generated_at"`
 	HasFindings bool           `json:"has_findings"`
 	Trails      []TrailJSON    `json:"trails"`
@@ -94,6 +99,7 @@ type TrailGapJSON struct {
 // SecretsReportJSON for JSON output
 type SecretsReportJSON struct {
 	AccountID   string       `json:"account_id"`
+	Region      string       `json:"region,omitempty"`
 	GeneratedAt string       `json:"generated_at"`
 	HasFindings bool         `json:"has_findings"`
 	TotalCount  int          `json:"total_count"`
