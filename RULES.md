@@ -9,8 +9,8 @@
 | Mode | Description |
 |------|-------------|
 | **Single Region** | Run against one region using `--region` (or SDK/default region resolution) |
-| **Multi Region** | Run the same rule set across multiple regions with `--regions` or `--all-regions` |
-| **Multi Account (Org)** | Scan active AWS Organizations accounts with `--org-scan` using per-account role assumption |
+| **Multi Region** | Run the same rule set across multiple regions with `--regions` or `--all-regions`; emits consolidated end-of-run fanout summary |
+| **Multi Account (Org)** | Scan active AWS Organizations accounts with `--org-scan` using per-account role assumption; includes account-level rollup summary |
 | **Historical Storage** | Persist findings/lifecycle in SQLite with `--store` and review using `--trends` / `history` commands |
 | **Dashboard/API** | Local dashboard and APIs (`dashboard`, `/api/trends`, `/api/scans`, `/api/findings`) built from stored scan history |
 

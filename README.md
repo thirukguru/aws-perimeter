@@ -158,6 +158,14 @@ aws-perimeter history list --db-path ~/.aws-perimeter/history.db
 aws-perimeter dashboard --port 8080
 ```
 
+### Fanout Summary Output
+
+For multi-region and org scans, aws-perimeter now prints a consolidated summary at the end of execution:
+
+- Per-scan-unit rows with `account_id`, `account_name`, `region`, `status`, `duration`, and `error`.
+- Aggregate totals (`TOTAL`, `SUCCESS`, `FAILED`, `SKIPPED`).
+- Account-level rollup table for org scans (success/failure/skip counts per account).
+
 ## Flags
 
 | Flag | Short | Description |

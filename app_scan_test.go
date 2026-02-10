@@ -2,10 +2,16 @@ package main
 
 import (
 	"errors"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	orgtypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
 	"github.com/thirukguru/aws-perimeter/model"
+	"github.com/thirukguru/aws-perimeter/service/storage"
 )
 
 func TestDedupeRegions(t *testing.T) {
@@ -58,5 +64,242 @@ func TestIsRetryableScanError(t *testing.T) {
 	}
 	if isRetryableScanError(errors.New("validation failed")) {
 		t.Fatalf("expected validation error to be non-retryable")
+	}
+}
+
+func TestBuildActiveOrgAccounts(t *testing.T) {
+	got := buildActiveOrgAccounts([]orgtypes.Account{
+		{Id: aws.String("111111111111"), Name: aws.String("active-1"), Status: orgtypes.AccountStatusActive},
+		{Id: aws.String(""), Name: aws.String("missing-id"), Status: orgtypes.AccountStatusActive},
+		{Id: aws.String("222222222222"), Name: aws.String("suspended"), Status: orgtypes.AccountStatusSuspended},
+		{Id: aws.String("333333333333"), Name: aws.String("active-2"), Status: orgtypes.AccountStatusActive},
+	})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 active accounts, got %d", len(got))
+	}
+	if got[0].ID != "111111111111" || got[1].ID != "333333333333" {
+		t.Fatalf("unexpected active account set: %+v", got)
+	}
+}
+
+func TestRunOrgScansWithConfig_SkipsAssumeRoleErrors(t *testing.T) {
+	var scanCalls int32
+	err := runOrgScansWithConfig(
+		aws.Config{Region: "us-east-1"},
+		model.Flags{MaxParallel: 2, OrgRoleName: "AuditRole"},
+		model.VersionInfo{},
+		nil,
+		orgScanDeps{
+			listAccounts: func(aws.Config) ([]orgAccount, string, error) {
+				return []orgAccount{
+					{ID: "111111111111", Name: "mgmt"},
+					{ID: "222222222222", Name: "member"},
+				}, "111111111111", nil
+			},
+			resolveRegions: func(model.Flags, aws.Config) ([]string, error) {
+				return []string{"us-east-1"}, nil
+			},
+			assumeRole: func(aws.Config, string, string, string, string) (aws.Config, error) {
+				return aws.Config{}, errors.New("assume denied")
+			},
+			runScan: func(aws.Config, model.Flags, model.VersionInfo, storage.Service, bool) error {
+				atomic.AddInt32(&scanCalls, 1)
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected no error when member account assume role fails, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&scanCalls); got != 1 {
+		t.Fatalf("expected only management account scan to run, got %d", got)
+	}
+}
+
+func TestRunOrgScansWithConfig_ReturnsErrorOnScanFailure(t *testing.T) {
+	err := runOrgScansWithConfig(
+		aws.Config{Region: "us-east-1"},
+		model.Flags{MaxParallel: 1},
+		model.VersionInfo{},
+		nil,
+		orgScanDeps{
+			listAccounts: func(aws.Config) ([]orgAccount, string, error) {
+				return []orgAccount{{ID: "111111111111", Name: "mgmt"}}, "111111111111", nil
+			},
+			resolveRegions: func(model.Flags, aws.Config) ([]string, error) {
+				return []string{"us-west-2"}, nil
+			},
+			assumeRole: func(aws.Config, string, string, string, string) (aws.Config, error) {
+				return aws.Config{}, nil
+			},
+			runScan: func(aws.Config, model.Flags, model.VersionInfo, storage.Service, bool) error {
+				return errors.New("throttling not recovered")
+			},
+		},
+	)
+	if err == nil {
+		t.Fatalf("expected org scan error")
+	}
+	if !strings.Contains(err.Error(), "org scan failed for account 111111111111 region us-west-2") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestRunMultiRegionScansWithConfig_RespectsMaxParallel(t *testing.T) {
+	var inFlight int32
+	var maxInFlight int32
+	var calls int32
+	var mu sync.Mutex
+	regionsSeen := map[string]bool{}
+
+	deps := multiRegionScanDeps{
+		resolveRegions: func(model.Flags, aws.Config) ([]string, error) {
+			return []string{"us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1"}, nil
+		},
+		runScan: func(_ aws.Config, flags model.Flags, _ model.VersionInfo, _ storage.Service, _ bool) error {
+			cur := atomic.AddInt32(&inFlight, 1)
+			defer atomic.AddInt32(&inFlight, -1)
+			for {
+				prev := atomic.LoadInt32(&maxInFlight)
+				if cur <= prev || atomic.CompareAndSwapInt32(&maxInFlight, prev, cur) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			atomic.AddInt32(&calls, 1)
+			mu.Lock()
+			regionsSeen[flags.Region] = true
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	err := runMultiRegionScansWithConfig(
+		aws.Config{Region: "us-east-1"},
+		model.Flags{MaxParallel: 2},
+		model.VersionInfo{},
+		nil,
+		deps,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&maxInFlight); got > 2 {
+		t.Fatalf("max in-flight scans exceeded limit: got %d want <= 2", got)
+	}
+	if got := atomic.LoadInt32(&calls); got != 5 {
+		t.Fatalf("expected 5 scans, got %d", got)
+	}
+	for _, r := range []string{"us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1"} {
+		if !regionsSeen[r] {
+			t.Fatalf("missing region scan for %s", r)
+		}
+	}
+}
+
+func TestRunOrgScansWithConfig_RespectsMaxParallel(t *testing.T) {
+	var inFlight int32
+	var maxInFlight int32
+	var calls int32
+
+	err := runOrgScansWithConfig(
+		aws.Config{Region: "us-east-1"},
+		model.Flags{MaxParallel: 3},
+		model.VersionInfo{},
+		nil,
+		orgScanDeps{
+			listAccounts: func(aws.Config) ([]orgAccount, string, error) {
+				return []orgAccount{
+					{ID: "111111111111", Name: "mgmt"},
+					{ID: "222222222222", Name: "member-1"},
+					{ID: "333333333333", Name: "member-2"},
+				}, "111111111111", nil
+			},
+			resolveRegions: func(model.Flags, aws.Config) ([]string, error) {
+				return []string{"us-east-1", "us-west-2"}, nil
+			},
+			assumeRole: func(base aws.Config, accountID, region, roleName, externalID string) (aws.Config, error) {
+				return aws.Config{Region: region}, nil
+			},
+			runScan: func(_ aws.Config, _ model.Flags, _ model.VersionInfo, _ storage.Service, _ bool) error {
+				cur := atomic.AddInt32(&inFlight, 1)
+				defer atomic.AddInt32(&inFlight, -1)
+				for {
+					prev := atomic.LoadInt32(&maxInFlight)
+					if cur <= prev || atomic.CompareAndSwapInt32(&maxInFlight, prev, cur) {
+						break
+					}
+				}
+				time.Sleep(20 * time.Millisecond)
+				atomic.AddInt32(&calls, 1)
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&maxInFlight); got > 3 {
+		t.Fatalf("max in-flight scans exceeded limit: got %d want <= 3", got)
+	}
+	if got := atomic.LoadInt32(&calls); got != 6 {
+		t.Fatalf("expected 6 account/region scans, got %d", got)
+	}
+}
+
+func TestRunMultiRegionScansWithConfig_PropagatesScanError(t *testing.T) {
+	wantErr := "scan failed in us-west-2"
+	err := runMultiRegionScansWithConfig(
+		aws.Config{Region: "us-east-1"},
+		model.Flags{MaxParallel: 2},
+		model.VersionInfo{},
+		nil,
+		multiRegionScanDeps{
+			resolveRegions: func(model.Flags, aws.Config) ([]string, error) {
+				return []string{"us-east-1", "us-west-2"}, nil
+			},
+			runScan: func(_ aws.Config, flags model.Flags, _ model.VersionInfo, _ storage.Service, _ bool) error {
+				if flags.Region == "us-west-2" {
+					return errors.New(wantErr)
+				}
+				return nil
+			},
+		},
+	)
+	if err == nil {
+		t.Fatalf("expected error from region scan")
+	}
+	if !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildAccountRollups(t *testing.T) {
+	rollups := buildAccountRollups([]fanoutScanResult{
+		{AccountID: "111111111111", AccountName: "mgmt", Region: "us-east-1", Status: "SUCCESS"},
+		{AccountID: "111111111111", AccountName: "mgmt", Region: "us-west-2", Status: "FAILED"},
+		{AccountID: "222222222222", AccountName: "dev", Region: "us-east-1", Status: "SKIPPED"},
+		{AccountID: "222222222222", AccountName: "dev", Region: "us-west-2", Status: "SUCCESS"},
+		{AccountID: "", AccountName: "", Region: "us-east-1", Status: "SUCCESS"},
+	})
+
+	if len(rollups) != 2 {
+		t.Fatalf("expected 2 account rollups, got %d", len(rollups))
+	}
+	if rollups[0].AccountID != "111111111111" || rollups[0].Total != 2 || rollups[0].Success != 1 || rollups[0].Failed != 1 || rollups[0].Skipped != 0 {
+		t.Fatalf("unexpected rollup[0]: %+v", rollups[0])
+	}
+	if rollups[1].AccountID != "222222222222" || rollups[1].Total != 2 || rollups[1].Success != 1 || rollups[1].Failed != 0 || rollups[1].Skipped != 1 {
+		t.Fatalf("unexpected rollup[1]: %+v", rollups[1])
+	}
+}
+
+func TestBuildAccountRollups_EmptyWhenNoAccountIDs(t *testing.T) {
+	rollups := buildAccountRollups([]fanoutScanResult{
+		{Region: "us-east-1", Status: "SUCCESS"},
+		{Region: "us-west-2", Status: "FAILED"},
+	})
+	if len(rollups) != 0 {
+		t.Fatalf("expected empty rollups, got %+v", rollups)
 	}
 }

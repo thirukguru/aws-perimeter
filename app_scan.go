@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,36 @@ import (
 type orgAccount struct {
 	ID   string
 	Name string
+}
+
+type multiRegionScanDeps struct {
+	resolveRegions func(model.Flags, aws.Config) ([]string, error)
+	runScan        func(aws.Config, model.Flags, model.VersionInfo, storage.Service, bool) error
+}
+
+type orgScanDeps struct {
+	listAccounts   func(aws.Config) ([]orgAccount, string, error)
+	resolveRegions func(model.Flags, aws.Config) ([]string, error)
+	assumeRole     func(aws.Config, string, string, string, string) (aws.Config, error)
+	runScan        func(aws.Config, model.Flags, model.VersionInfo, storage.Service, bool) error
+}
+
+type fanoutScanResult struct {
+	AccountID   string
+	AccountName string
+	Region      string
+	Status      string
+	Duration    time.Duration
+	Error       string
+}
+
+type accountScanRollup struct {
+	AccountID   string
+	AccountName string
+	Total       int
+	Success     int
+	Failed      int
+	Skipped     int
 }
 
 func runRegionScan(flags model.Flags, versionInfo model.VersionInfo, storageService storage.Service) error {
@@ -175,16 +206,30 @@ func runMultiRegionScans(flags model.Flags, versionInfo model.VersionInfo, stora
 	if err != nil {
 		return fmt.Errorf("failed to load AWS config for multi-region scan: %w", err)
 	}
+	return runMultiRegionScansWithConfig(baseCfg, flags, versionInfo, storageService, multiRegionScanDeps{
+		resolveRegions: resolveRegionsFromConfig,
+		runScan:        runScanWithRetry,
+	})
+}
 
-	regions, err := resolveRegionsFromConfig(flags, baseCfg)
+func runMultiRegionScansWithConfig(
+	baseCfg aws.Config,
+	flags model.Flags,
+	versionInfo model.VersionInfo,
+	storageService storage.Service,
+	deps multiRegionScanDeps,
+) error {
+	regions, err := deps.resolveRegions(flags, baseCfg)
 	if err != nil {
 		return err
 	}
+	results := make([]fanoutScanResult, 0, len(regions))
 	parallel := flags.MaxParallel
 	if parallel <= 0 {
 		parallel = 3
 	}
 	var printMu sync.Mutex
+	var resultMu sync.Mutex
 	g, ctx := errgroup.WithContext(context.Background())
 	sem := make(chan struct{}, parallel)
 
@@ -206,10 +251,26 @@ func runMultiRegionScans(flags model.Flags, versionInfo model.VersionInfo, stora
 			regionalFlags.Region = region
 			cfg := baseCfg
 			cfg.Region = region
-			return runScanWithRetry(cfg, regionalFlags, versionInfo, storageService, false)
+			started := time.Now()
+			scanErr := deps.runScan(cfg, regionalFlags, versionInfo, storageService, false)
+			result := fanoutScanResult{
+				Region:   region,
+				Status:   "SUCCESS",
+				Duration: time.Since(started),
+			}
+			if scanErr != nil {
+				result.Status = "FAILED"
+				result.Error = scanErr.Error()
+			}
+			resultMu.Lock()
+			results = append(results, result)
+			resultMu.Unlock()
+			return scanErr
 		})
 	}
-	return g.Wait()
+	waitErr := g.Wait()
+	renderFanoutSummary("Multi-Region", results)
+	return waitErr
 }
 
 func runOrgScans(flags model.Flags, versionInfo model.VersionInfo, storageService storage.Service) error {
@@ -218,21 +279,37 @@ func runOrgScans(flags model.Flags, versionInfo model.VersionInfo, storageServic
 	if err != nil {
 		return fmt.Errorf("failed to load AWS config for org scan: %w", err)
 	}
+	return runOrgScansWithConfig(baseCfg, flags, versionInfo, storageService, orgScanDeps{
+		listAccounts:   listOrgAccounts,
+		resolveRegions: resolveRegionsFromConfig,
+		assumeRole:     assumeAccountRole,
+		runScan:        runScanWithRetry,
+	})
+}
 
-	accounts, managementAccountID, err := listOrgAccounts(baseCfg)
+func runOrgScansWithConfig(
+	baseCfg aws.Config,
+	flags model.Flags,
+	versionInfo model.VersionInfo,
+	storageService storage.Service,
+	deps orgScanDeps,
+) error {
+	accounts, managementAccountID, err := deps.listAccounts(baseCfg)
 	if err != nil {
 		return err
 	}
-	regions, err := resolveRegionsFromConfig(flags, baseCfg)
+	regions, err := deps.resolveRegions(flags, baseCfg)
 	if err != nil {
 		return err
 	}
+	results := make([]fanoutScanResult, 0, len(accounts)*len(regions))
 
 	parallel := flags.MaxParallel
 	if parallel <= 0 {
 		parallel = 3
 	}
 	var printMu sync.Mutex
+	var resultMu sync.Mutex
 	g, ctx := errgroup.WithContext(context.Background())
 	sem := make(chan struct{}, parallel)
 
@@ -256,25 +333,52 @@ func runOrgScans(flags model.Flags, versionInfo model.VersionInfo, storageServic
 				scanCfg := baseCfg
 				scanCfg.Region = region
 				if acct.ID != managementAccountID {
-					assumedCfg, err := assumeAccountRole(baseCfg, acct.ID, region, flags.OrgRoleName, flags.ExternalID)
+					assumedCfg, err := deps.assumeRole(baseCfg, acct.ID, region, flags.OrgRoleName, flags.ExternalID)
 					if err != nil {
 						printMu.Lock()
 						fmt.Printf("  ⚠️ Skipping account %s in %s: %v\n", acct.ID, region, err)
 						printMu.Unlock()
+						resultMu.Lock()
+						results = append(results, fanoutScanResult{
+							AccountID:   acct.ID,
+							AccountName: acct.Name,
+							Region:      region,
+							Status:      "SKIPPED",
+							Error:       err.Error(),
+						})
+						resultMu.Unlock()
 						return nil
 					}
 					scanCfg = assumedCfg
 				}
 				regionalFlags := flags
 				regionalFlags.Region = region
-				if err := runScanWithRetry(scanCfg, regionalFlags, versionInfo, storageService, false); err != nil {
-					return fmt.Errorf("org scan failed for account %s region %s: %w", acct.ID, region, err)
+				started := time.Now()
+				scanErr := deps.runScan(scanCfg, regionalFlags, versionInfo, storageService, false)
+				result := fanoutScanResult{
+					AccountID:   acct.ID,
+					AccountName: acct.Name,
+					Region:      region,
+					Status:      "SUCCESS",
+					Duration:    time.Since(started),
+				}
+				if scanErr != nil {
+					result.Status = "FAILED"
+					result.Error = scanErr.Error()
+				}
+				resultMu.Lock()
+				results = append(results, result)
+				resultMu.Unlock()
+				if scanErr != nil {
+					return fmt.Errorf("org scan failed for account %s region %s: %w", acct.ID, region, scanErr)
 				}
 				return nil
 			})
 		}
 	}
-	return g.Wait()
+	waitErr := g.Wait()
+	renderFanoutSummary("Org + Region", results)
+	return waitErr
 }
 
 func runScanWithRetry(
@@ -334,21 +438,27 @@ func listOrgAccounts(baseCfg aws.Config) ([]orgAccount, string, error) {
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to list organization accounts: %w", err)
 		}
-		for _, a := range page.Accounts {
-			if a.Status != orgtypes.AccountStatusActive {
-				continue
-			}
-			id := aws.ToString(a.Id)
-			if id == "" {
-				continue
-			}
-			accounts = append(accounts, orgAccount{ID: id, Name: aws.ToString(a.Name)})
-		}
+		accounts = append(accounts, buildActiveOrgAccounts(page.Accounts)...)
 	}
 	if len(accounts) == 0 {
 		return nil, "", fmt.Errorf("no active organization accounts discovered")
 	}
 	return accounts, managementAccountID, nil
+}
+
+func buildActiveOrgAccounts(accounts []orgtypes.Account) []orgAccount {
+	out := make([]orgAccount, 0, len(accounts))
+	for _, a := range accounts {
+		if a.Status != orgtypes.AccountStatusActive {
+			continue
+		}
+		id := aws.ToString(a.Id)
+		if id == "" {
+			continue
+		}
+		out = append(out, orgAccount{ID: id, Name: aws.ToString(a.Name)})
+	}
+	return out
 }
 
 func assumeAccountRole(baseCfg aws.Config, accountID, region, roleName, externalID string) (aws.Config, error) {
@@ -431,5 +541,102 @@ func dedupeRegions(input []string) []string {
 			out = append(out, r)
 		}
 	}
+	return out
+}
+
+func renderFanoutSummary(mode string, results []fanoutScanResult) {
+	if len(results) == 0 {
+		return
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].AccountID != results[j].AccountID {
+			return results[i].AccountID < results[j].AccountID
+		}
+		if results[i].Region != results[j].Region {
+			return results[i].Region < results[j].Region
+		}
+		return results[i].Status < results[j].Status
+	})
+
+	success := 0
+	failed := 0
+	skipped := 0
+
+	fmt.Printf("\n\n=== Consolidated %s Scan Summary ===\n", mode)
+	fmt.Printf("%-14s %-20s %-12s %-8s %-10s %s\n", "ACCOUNT_ID", "ACCOUNT_NAME", "REGION", "STATUS", "DURATION", "ERROR")
+	for _, r := range results {
+		switch r.Status {
+		case "SUCCESS":
+			success++
+		case "FAILED":
+			failed++
+		case "SKIPPED":
+			skipped++
+		}
+		duration := "-"
+		if r.Duration > 0 {
+			duration = r.Duration.Round(10 * time.Millisecond).String()
+		}
+		accountID := r.AccountID
+		if accountID == "" {
+			accountID = "-"
+		}
+		accountName := r.AccountName
+		if accountName == "" {
+			accountName = "-"
+		}
+		errText := r.Error
+		if errText == "" {
+			errText = "-"
+		}
+		fmt.Printf("%-14s %-20s %-12s %-8s %-10s %s\n", accountID, accountName, r.Region, r.Status, duration, errText)
+	}
+	fmt.Printf("TOTAL=%d SUCCESS=%d FAILED=%d SKIPPED=%d\n", len(results), success, failed, skipped)
+
+	rollups := buildAccountRollups(results)
+	if len(rollups) == 0 {
+		return
+	}
+	fmt.Printf("\nAccount-Level Rollup\n")
+	fmt.Printf("%-14s %-20s %-6s %-7s %-6s %-7s\n", "ACCOUNT_ID", "ACCOUNT_NAME", "TOTAL", "SUCCESS", "FAILED", "SKIPPED")
+	for _, r := range rollups {
+		fmt.Printf("%-14s %-20s %-6d %-7d %-6d %-7d\n", r.AccountID, r.AccountName, r.Total, r.Success, r.Failed, r.Skipped)
+	}
+}
+
+func buildAccountRollups(results []fanoutScanResult) []accountScanRollup {
+	type key struct {
+		id   string
+		name string
+	}
+	m := map[key]*accountScanRollup{}
+	for _, r := range results {
+		if strings.TrimSpace(r.AccountID) == "" {
+			continue
+		}
+		k := key{id: r.AccountID, name: r.AccountName}
+		existing, ok := m[k]
+		if !ok {
+			existing = &accountScanRollup{
+				AccountID:   r.AccountID,
+				AccountName: r.AccountName,
+			}
+			m[k] = existing
+		}
+		existing.Total++
+		switch r.Status {
+		case "SUCCESS":
+			existing.Success++
+		case "FAILED":
+			existing.Failed++
+		case "SKIPPED":
+			existing.Skipped++
+		}
+	}
+	out := make([]accountScanRollup, 0, len(m))
+	for _, v := range m {
+		out = append(out, *v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].AccountID < out[j].AccountID })
 	return out
 }
