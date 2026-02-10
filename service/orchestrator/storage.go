@@ -85,6 +85,12 @@ func (s *service) persistScanIfEnabled(
 	for _, r := range secretsInput.EC2Secrets {
 		add(storage.Finding{Hash: findingHash("Secrets", r.SecretType, r.ResourceID, r.Location), Category: "Secrets", Subcategory: "EC2", RiskType: r.SecretType, Severity: r.Severity, ResourceType: r.ResourceType, ResourceID: r.ResourceID, Title: "Secret Detected", Description: r.Location, Recommendation: r.Recommendation})
 	}
+	for _, r := range secretsInput.S3Secrets {
+		add(storage.Finding{Hash: findingHash("Secrets", r.SecretType, r.ResourceID, r.Location), Category: "Secrets", Subcategory: "S3", RiskType: r.SecretType, Severity: r.Severity, ResourceType: r.ResourceType, ResourceID: r.ResourceID, Title: "Secret Detected", Description: r.Location, Recommendation: r.Recommendation})
+	}
+	for _, r := range secretsInput.ECRSecrets {
+		add(storage.Finding{Hash: findingHash("Secrets", r.SecretType, r.ResourceID, r.Location), Category: "Secrets", Subcategory: "ECR", RiskType: r.SecretType, Severity: r.Severity, ResourceType: r.ResourceType, ResourceID: r.ResourceID, Title: "Secret Detected", Description: r.Location, Recommendation: r.Recommendation})
+	}
 	for _, r := range advInput.GuardDutyFindings {
 		add(storage.Finding{Hash: findingHash("GuardDuty", r.Type, r.ResourceID), Category: "GuardDuty", Subcategory: "Threat", RiskType: r.Type, Severity: r.SeverityLabel, ResourceType: "AWSResource", ResourceID: r.ResourceID, Title: "GuardDuty Finding", Description: r.Description})
 	}

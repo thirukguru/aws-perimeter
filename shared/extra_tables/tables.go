@@ -16,6 +16,7 @@ func DrawS3Table(input model.RenderS3Input) {
 	fmt.Printf("\n🪣 S3 Security Report - Account: %s\n", input.AccountID)
 
 	total := len(input.PublicBuckets) + len(input.UnencryptedBkts) + len(input.RiskyPolicies)
+	total += len(input.SensitiveExposures)
 	if total == 0 {
 		fmt.Println(text.FgGreen.Sprint("\n✅ No S3 security issues found!"))
 		return
@@ -25,9 +26,9 @@ func DrawS3Table(input model.RenderS3Input) {
 		fmt.Println("\n" + text.FgRed.Sprint("🌐 Public/Unblocked Buckets"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Bucket", "Risk", "Recommendation"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Bucket", "Risk", "Recommendation"})
 		for _, b := range input.PublicBuckets {
-			t.AppendRow(table.Row{formatSeverity(b.Severity), b.BucketName, b.RiskType, truncate(b.Recommendation, 35)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(b.Severity), b.BucketName, b.RiskType, truncate(b.Recommendation, 35)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -37,9 +38,9 @@ func DrawS3Table(input model.RenderS3Input) {
 		fmt.Println("\n" + text.FgYellow.Sprint("🔓 Unencrypted Buckets"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Bucket", "Encryption", "Recommendation"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Bucket", "Encryption", "Recommendation"})
 		for _, b := range input.UnencryptedBkts {
-			t.AppendRow(table.Row{formatSeverity(b.Severity), b.BucketName, b.EncryptionType, b.Recommendation})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(b.Severity), b.BucketName, b.EncryptionType, b.Recommendation})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -49,9 +50,34 @@ func DrawS3Table(input model.RenderS3Input) {
 		fmt.Println("\n" + text.FgRed.Sprint("⚠️ Risky Bucket Policies"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Bucket", "Public?", "Any Action?", "Recommendation"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Bucket", "Public?", "Any Action?", "Recommendation"})
 		for _, p := range input.RiskyPolicies {
-			t.AppendRow(table.Row{formatSeverity(p.Severity), p.BucketName, p.AllowsPublic, p.AllowsAnyAction, p.Recommendation})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(p.Severity), p.BucketName, p.AllowsPublic, p.AllowsAnyAction, p.Recommendation})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	if len(input.SensitiveExposures) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🧪 Sensitive File/Content Exposure"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Bucket", "Object", "Type", "Public", "Recommendation"})
+		for _, e := range input.SensitiveExposures {
+			publicStr := "No"
+			if e.IsPublic {
+				publicStr = "Yes"
+			}
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(e.Severity),
+				e.BucketName,
+				truncate(e.FileName, 30),
+				e.FileType,
+				publicStr,
+				truncate(e.Recommendation, 35),
+			})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -66,9 +92,9 @@ func DrawCloudTrailTable(input model.RenderCloudTrailInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("⚠️ CloudTrail Gaps"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Issue", "Description", "Recommendation"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Issue", "Description", "Recommendation"})
 		for _, g := range input.TrailGaps {
-			t.AppendRow(table.Row{formatSeverity(g.Severity), g.Issue, truncate(g.Description, 30), truncate(g.Recommendation, 35)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(g.Severity), g.Issue, truncate(g.Description, 30), truncate(g.Recommendation, 35)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -78,7 +104,7 @@ func DrawCloudTrailTable(input model.RenderCloudTrailInput) {
 		fmt.Println("\n" + text.FgCyan.Sprint("📊 Trail Status"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Status", "Trail", "Multi-Region", "Logging", "Validation"})
+		t.AppendHeader(table.Row{"Account", "Region", "Status", "Trail", "Multi-Region", "Logging", "Validation"})
 		for _, s := range input.TrailStatus {
 			logging := "❌"
 			if s.IsLogging {
@@ -92,7 +118,7 @@ func DrawCloudTrailTable(input model.RenderCloudTrailInput) {
 			if s.HasLogValidation {
 				validation = "✅"
 			}
-			t.AppendRow(table.Row{formatSeverity(s.Severity), s.TrailName, multiRegion, logging, validation})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(s.Severity), s.TrailName, multiRegion, logging, validation})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -107,7 +133,7 @@ func DrawCloudTrailTable(input model.RenderCloudTrailInput) {
 func DrawSecretsTable(input model.RenderSecretsInput) {
 	fmt.Printf("\n🔐 Secrets Detection Report - Account: %s\n", input.AccountID)
 
-	total := len(input.LambdaSecrets) + len(input.EC2Secrets)
+	total := len(input.LambdaSecrets) + len(input.EC2Secrets) + len(input.S3Secrets) + len(input.ECRSecrets)
 	if total == 0 {
 		fmt.Println(text.FgGreen.Sprint("\n✅ No exposed secrets detected!"))
 		return
@@ -119,9 +145,9 @@ func DrawSecretsTable(input model.RenderSecretsInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("λ Lambda Environment Variables"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Function", "Secret Type", "Location", "Pattern"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Function", "Secret Type", "Location", "Pattern"})
 		for _, s := range input.LambdaSecrets {
-			t.AppendRow(table.Row{formatSeverity(s.Severity), truncate(s.ResourceName, 20), s.SecretType, truncate(s.Location, 25), s.MatchedPattern})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(s.Severity), truncate(s.ResourceName, 20), s.SecretType, truncate(s.Location, 25), s.MatchedPattern})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -131,9 +157,57 @@ func DrawSecretsTable(input model.RenderSecretsInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("💻 EC2 User Data"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Instance", "Secret Type", "Recommendation"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Instance", "Secret Type", "Recommendation"})
 		for _, s := range input.EC2Secrets {
-			t.AppendRow(table.Row{formatSeverity(s.Severity), s.ResourceName, s.SecretType, truncate(s.Recommendation, 40)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(s.Severity), s.ResourceName, s.SecretType, truncate(s.Recommendation, 40)})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	if len(input.S3Secrets) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🪣 S3 Object Content"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Bucket/Object", "Secret Type", "Location", "Recommendation"})
+		for _, s := range input.S3Secrets {
+			resource := s.ResourceName
+			if resource == "" {
+				resource = s.ResourceID
+			}
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(s.Severity),
+				truncate(resource, 35),
+				s.SecretType,
+				truncate(s.Location, 25),
+				truncate(s.Recommendation, 45),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	if len(input.ECRSecrets) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🐳 ECR Image Layers"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Image", "Secret Type", "Location", "Recommendation"})
+		for _, s := range input.ECRSecrets {
+			resource := s.ResourceName
+			if resource == "" {
+				resource = s.ResourceID
+			}
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(s.Severity),
+				truncate(resource, 35),
+				s.SecretType,
+				truncate(s.Location, 30),
+				truncate(s.Recommendation, 45),
+			})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -158,9 +232,9 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("🚨 Security Hub Critical Findings"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Title", "Resource", "Compliance"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Title", "Resource", "Compliance"})
 		for _, f := range input.HubFindings {
-			t.AppendRow(table.Row{formatSeverity(f.Severity), truncate(f.Title, 35), truncate(f.ResourceID, 25), f.Compliance})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(f.Severity), truncate(f.Title, 35), truncate(f.ResourceID, 25), f.Compliance})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -180,9 +254,9 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("⚔️ GuardDuty Threat Findings"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Type", "Resource", "Description"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Type", "Resource", "Description"})
 		for _, f := range input.GuardDutyFindings {
-			t.AppendRow(table.Row{formatSeverity(f.SeverityLabel), truncate(f.Type, 30), f.ResourceID, truncate(f.Description, 35)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(f.SeverityLabel), truncate(f.Type, 30), f.ResourceID, truncate(f.Description, 35)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -193,9 +267,9 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("🔓 API Gateway Routes Without Authorization"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "API", "Route", "Recommendation"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "API", "Route", "Recommendation"})
 		for _, r := range input.APINoAuth {
-			t.AppendRow(table.Row{formatSeverity(r.Severity), r.APIName, r.RouteKey, r.Recommendation})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(r.Severity), r.APIName, r.RouteKey, r.Recommendation})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -205,9 +279,9 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		fmt.Println("\n" + text.FgYellow.Sprint("⚡ API Gateway Without Rate Limits"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "API", "Stage", "Recommendation"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "API", "Stage", "Recommendation"})
 		for _, r := range input.APINoRateLimits {
-			t.AppendRow(table.Row{formatSeverity(r.Severity), r.APIName, r.StageName, r.Recommendation})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(r.Severity), r.APIName, r.StageName, r.Recommendation})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -221,13 +295,13 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("📜 Resource-Based Policy Risks"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Type", "Resource", "Risk", "Condition?"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Type", "Resource", "Risk", "Condition?"})
 		for _, r := range allPolicyRisks {
 			hasCondStr := "❌"
 			if r.HasCondition {
 				hasCondStr = "✅"
 			}
-			t.AppendRow(table.Row{formatSeverity(r.Severity), r.ResourceType, truncate(r.ResourceName, 20), r.RiskType, hasCondStr})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(r.Severity), r.ResourceType, truncate(r.ResourceName, 20), r.RiskType, hasCondStr})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()

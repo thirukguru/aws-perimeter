@@ -345,7 +345,7 @@ func OutputS3JSON(input model.RenderS3Input) error {
 		AccountID:   input.AccountID,
 		Region:      input.Region,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		HasFindings: len(input.PublicBuckets)+len(input.UnencryptedBkts)+len(input.RiskyPolicies) > 0,
+		HasFindings: len(input.PublicBuckets)+len(input.UnencryptedBkts)+len(input.RiskyPolicies)+len(input.SensitiveExposures) > 0,
 	}
 
 	for _, b := range input.PublicBuckets {
@@ -374,6 +374,18 @@ func OutputS3JSON(input model.RenderS3Input) error {
 			AllowsAnyAction: p.AllowsAnyAction,
 			RiskyStatements: p.RiskyStatements,
 			Severity:        p.Severity,
+		})
+	}
+
+	for _, e := range input.SensitiveExposures {
+		output.SensitiveExposures = append(output.SensitiveExposures, model.SensitiveFileExposureJSON{
+			BucketName:     e.BucketName,
+			FileName:       e.FileName,
+			FileType:       e.FileType,
+			IsPublic:       e.IsPublic,
+			Severity:       e.Severity,
+			Description:    e.Description,
+			Recommendation: e.Recommendation,
 		})
 	}
 
@@ -414,6 +426,8 @@ func OutputCloudTrailJSON(input model.RenderCloudTrailInput) error {
 // OutputSecretsJSON outputs secrets detection results as JSON
 func OutputSecretsJSON(input model.RenderSecretsInput) error {
 	allSecrets := append(input.LambdaSecrets, input.EC2Secrets...)
+	allSecrets = append(allSecrets, input.S3Secrets...)
+	allSecrets = append(allSecrets, input.ECRSecrets...)
 
 	output := model.SecretsReportJSON{
 		AccountID:   input.AccountID,

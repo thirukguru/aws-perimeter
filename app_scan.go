@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"slices"
 	"sort"
 	"strings"
@@ -85,6 +86,14 @@ type accountScanRollup struct {
 	Success     int
 	Failed      int
 	Skipped     int
+}
+
+type fanoutProgress struct {
+	Total     int
+	Completed int
+	Success   int
+	Failed    int
+	Skipped   int
 }
 
 func runRegionScan(flags model.Flags, versionInfo model.VersionInfo, storageService storage.Service) error {
@@ -224,6 +233,7 @@ func runMultiRegionScansWithConfig(
 		return err
 	}
 	results := make([]fanoutScanResult, 0, len(regions))
+	progress := fanoutProgress{Total: len(regions)}
 	parallel := flags.MaxParallel
 	if parallel <= 0 {
 		parallel = 3
@@ -264,7 +274,12 @@ func runMultiRegionScansWithConfig(
 			}
 			resultMu.Lock()
 			results = append(results, result)
+			snapshot := updateFanoutProgress(&progress, result.Status)
 			resultMu.Unlock()
+			printMu.Lock()
+			fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
+				"Multi-Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
+			printMu.Unlock()
 			return scanErr
 		})
 	}
@@ -303,6 +318,7 @@ func runOrgScansWithConfig(
 		return err
 	}
 	results := make([]fanoutScanResult, 0, len(accounts)*len(regions))
+	progress := fanoutProgress{Total: len(accounts) * len(regions)}
 
 	parallel := flags.MaxParallel
 	if parallel <= 0 {
@@ -346,7 +362,12 @@ func runOrgScansWithConfig(
 							Status:      "SKIPPED",
 							Error:       err.Error(),
 						})
+						snapshot := updateFanoutProgress(&progress, "SKIPPED")
 						resultMu.Unlock()
+						printMu.Lock()
+						fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
+							"Org + Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
+						printMu.Unlock()
 						return nil
 					}
 					scanCfg = assumedCfg
@@ -368,7 +389,12 @@ func runOrgScansWithConfig(
 				}
 				resultMu.Lock()
 				results = append(results, result)
+				snapshot := updateFanoutProgress(&progress, result.Status)
 				resultMu.Unlock()
+				printMu.Lock()
+				fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
+					"Org + Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
+				printMu.Unlock()
 				if scanErr != nil {
 					return fmt.Errorf("org scan failed for account %s region %s: %w", acct.ID, region, scanErr)
 				}
@@ -389,8 +415,10 @@ func runScanWithRetry(
 	useSpinner bool,
 ) error {
 	const maxAttempts = 3
-	backoff := 500 * time.Millisecond
+	const baseBackoff = 500 * time.Millisecond
+	const maxBackoff = 5 * time.Second
 	var lastErr error
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		err := runConfiguredScan(cfg, flags, versionInfo, storageService, useSpinner)
 		if err == nil {
@@ -400,10 +428,41 @@ func runScanWithRetry(
 		if !isRetryableScanError(err) || attempt == maxAttempts {
 			return err
 		}
+		backoff := retryBackoffDuration(attempt, baseBackoff, maxBackoff, rng)
+		fmt.Printf("  ↻ Retry %d/%d for region %s in %s: %v\n", attempt+1, maxAttempts, flags.Region, backoff.Round(10*time.Millisecond), err)
 		time.Sleep(backoff)
-		backoff *= 2
 	}
 	return lastErr
+}
+
+func retryBackoffDuration(attempt int, base, max time.Duration, rng *rand.Rand) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if base <= 0 {
+		base = 500 * time.Millisecond
+	}
+	if max < base {
+		max = base
+	}
+
+	backoff := base
+	for i := 1; i < attempt; i++ {
+		backoff *= 2
+		if backoff >= max {
+			backoff = max
+			break
+		}
+	}
+	jitterBound := backoff / 2
+	if jitterBound <= 0 || rng == nil {
+		return backoff
+	}
+	jitter := time.Duration(rng.Int63n(int64(jitterBound) + 1))
+	if backoff+jitter > max {
+		return max
+	}
+	return backoff + jitter
 }
 
 func isRetryableScanError(err error) bool {
@@ -639,4 +698,20 @@ func buildAccountRollups(results []fanoutScanResult) []accountScanRollup {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].AccountID < out[j].AccountID })
 	return out
+}
+
+func updateFanoutProgress(p *fanoutProgress, status string) fanoutProgress {
+	if p == nil {
+		return fanoutProgress{}
+	}
+	p.Completed++
+	switch status {
+	case "SUCCESS":
+		p.Success++
+	case "FAILED":
+		p.Failed++
+	case "SKIPPED":
+		p.Skipped++
+	}
+	return *p
 }

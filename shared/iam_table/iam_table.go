@@ -26,36 +26,36 @@ func DrawIAMTable(input model.RenderIAMInput) {
 
 	// Privilege Escalation Risks
 	if len(input.PrivilegeEscalation) > 0 {
-		drawPrivEscTable(input.PrivilegeEscalation)
+		drawPrivEscTable(input.AccountID, input.Region, input.PrivilegeEscalation)
 	}
 
 	// Stale Credentials
 	if len(input.StaleCredentials) > 0 {
-		drawStaleCredentialsTable(input.StaleCredentials)
+		drawStaleCredentialsTable(input.AccountID, input.Region, input.StaleCredentials)
 	}
 
 	// Cross-Account Trusts
 	if len(input.CrossAccountTrusts) > 0 {
-		drawCrossAccountTable(input.CrossAccountTrusts)
+		drawCrossAccountTable(input.AccountID, input.Region, input.CrossAccountTrusts)
 	}
 
 	// Users Without MFA
 	if len(input.UsersWithoutMFA) > 0 {
-		drawMFATable(input.UsersWithoutMFA)
+		drawMFATable(input.AccountID, input.Region, input.UsersWithoutMFA)
 	}
 
 	// Overly Permissive Policies
 	if len(input.OverlyPermissivePolicies) > 0 {
-		drawDangerousPoliciesTable(input.OverlyPermissivePolicies)
+		drawDangerousPoliciesTable(input.AccountID, input.Region, input.OverlyPermissivePolicies)
 	}
 }
 
-func drawPrivEscTable(risks []iam.PrivEscRisk) {
+func drawPrivEscTable(accountID, region string, risks []iam.PrivEscRisk) {
 	fmt.Println("\n" + text.FgRed.Sprint("🚨 Privilege Escalation Risks"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "Type", "Principal", "Escalation Path", "Dangerous Actions"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "Type", "Principal", "Escalation Path", "Dangerous Actions"})
 
 	for _, r := range risks {
 		severity := formatSeverity(r.Severity)
@@ -65,6 +65,8 @@ func drawPrivEscTable(risks []iam.PrivEscRisk) {
 		}
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			r.PrincipalType,
 			r.PrincipalName,
@@ -77,12 +79,12 @@ func drawPrivEscTable(risks []iam.PrivEscRisk) {
 	t.Render()
 }
 
-func drawStaleCredentialsTable(creds []iam.StaleCredential) {
+func drawStaleCredentialsTable(accountID, region string, creds []iam.StaleCredential) {
 	fmt.Println("\n" + text.FgYellow.Sprint("🔑 Stale Credentials"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "User", "Type", "Key ID", "Created", "Last Used", "Age (days)"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "User", "Type", "Key ID", "Created", "Last Used", "Age (days)"})
 
 	for _, c := range creds {
 		severity := formatSeverity(c.Severity)
@@ -92,6 +94,8 @@ func drawStaleCredentialsTable(creds []iam.StaleCredential) {
 		}
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			c.UserName,
 			c.CredentialType,
@@ -106,12 +110,12 @@ func drawStaleCredentialsTable(creds []iam.StaleCredential) {
 	t.Render()
 }
 
-func drawCrossAccountTable(trusts []iam.CrossAccountTrust) {
+func drawCrossAccountTable(accountID, region string, trusts []iam.CrossAccountTrust) {
 	fmt.Println("\n" + text.FgRed.Sprint("🌐 Cross-Account Trust Risks"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "Role", "Trusted Account", "Description"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "Role", "Trusted Account", "Description"})
 
 	for _, tr := range trusts {
 		severity := formatSeverity(tr.Severity)
@@ -121,6 +125,8 @@ func drawCrossAccountTable(trusts []iam.CrossAccountTrust) {
 		}
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			tr.RoleName,
 			trusted,
@@ -132,12 +138,12 @@ func drawCrossAccountTable(trusts []iam.CrossAccountTrust) {
 	t.Render()
 }
 
-func drawMFATable(users []iam.UserMFAStatus) {
+func drawMFATable(accountID, region string, users []iam.UserMFAStatus) {
 	fmt.Println("\n" + text.FgYellow.Sprint("🔓 Console Users Without MFA"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "User", "Console Access", "MFA Enabled", "Recommendation"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "User", "Console Access", "MFA Enabled", "Recommendation"})
 
 	for _, u := range users {
 		severity := formatSeverity(u.Severity)
@@ -145,6 +151,8 @@ func drawMFATable(users []iam.UserMFAStatus) {
 		mfa := text.FgRed.Sprint("No")
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			u.UserName,
 			console,
@@ -157,12 +165,12 @@ func drawMFATable(users []iam.UserMFAStatus) {
 	t.Render()
 }
 
-func drawDangerousPoliciesTable(policies []iam.DangerousPolicy) {
+func drawDangerousPoliciesTable(accountID, region string, policies []iam.DangerousPolicy) {
 	fmt.Println("\n" + text.FgRed.Sprint("⚠️ Overly Permissive Policies"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "Policy Name", "Type", "Reason"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "Policy Name", "Type", "Reason"})
 
 	for _, p := range policies {
 		severity := formatSeverity(p.Severity)
@@ -172,6 +180,8 @@ func drawDangerousPoliciesTable(policies []iam.DangerousPolicy) {
 		}
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			p.PolicyName,
 			p.PolicyType,

@@ -7,7 +7,7 @@
   <a href="https://github.com/thirukguru/aws-perimeter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/thirukguru/aws-perimeter" alt="License"></a>
 </p>
 
-A terminal-based **AWS Security Scanner** with **102+ security checks** across VPC, IAM, S3, CloudTrail, containers (ECS/EKS), and AI attack detection. Detects dangerous IAM permissions, exposed secrets, misconfigured S3 buckets, container vulnerabilities, and emerging LLMjacking threats.
+A terminal-based **AWS Security Scanner** with **100+ security checks** across VPC, IAM, S3, CloudTrail, containers (ECS/EKS), and AI attack detection. Detects dangerous IAM permissions, exposed secrets, misconfigured S3 buckets, container vulnerabilities, and emerging LLMjacking threats.
 
 ## Features
 
@@ -30,6 +30,8 @@ A terminal-based **AWS Security Scanner** with **102+ security checks** across V
 - Public bucket detection
 - Encryption audit & risky bucket policies
 - Public access block status
+- Sensitive file/object discovery (`.env`, `.git`, credentials)
+- Deep text-content secret detection in S3 objects
 
 ### 📋 CloudTrail & Logging
 - Trail coverage gaps & multi-region logging
@@ -38,7 +40,10 @@ A terminal-based **AWS Security Scanner** with **102+ security checks** across V
 
 ### 🔐 Secrets Detection
 - Lambda env vars (10 secret patterns)
+- Lambda deployment package (ZIP) scanning
 - EC2 user data scanning
+- Public S3 object content scanning
+- ECR image layer scanning for embedded credentials
 - AWS keys, GitHub/Slack/Stripe tokens
 
 ### 🐳 Container Security (NEW)
@@ -227,6 +232,12 @@ The following permissions are required for full feature coverage (including mult
         
         "lambda:ListFunctions",
         "lambda:GetFunctionConfiguration",
+        "lambda:GetFunction",
+        
+        "ecr:DescribeRepositories",
+        "ecr:DescribeImages",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
         
         "ecs:ListClusters",
         "ecs:DescribeClusters",
@@ -256,6 +267,7 @@ The following permissions are required for full feature coverage (including mult
         "kms:ListKeys",
         "kms:DescribeKey",
         "kms:GetKeyRotationStatus",
+        "kms:Decrypt",
         
         "rds:DescribeDB*",
         
@@ -284,6 +296,8 @@ The following permissions are required for full feature coverage (including mult
   ]
 }
 ```
+
+`kms:Decrypt` is required only when scanning encrypted objects/packages (for example SSE-KMS S3 object reads). Scope this to required KMS keys in production.
 
 For `--org-scan`, the management principal must be allowed to assume a member-account role (default: `OrganizationAccountAccessRole`), for example:
 

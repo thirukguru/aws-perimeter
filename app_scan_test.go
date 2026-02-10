@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -301,5 +302,49 @@ func TestBuildAccountRollups_EmptyWhenNoAccountIDs(t *testing.T) {
 	})
 	if len(rollups) != 0 {
 		t.Fatalf("expected empty rollups, got %+v", rollups)
+	}
+}
+
+func TestUpdateFanoutProgress(t *testing.T) {
+	p := &fanoutProgress{Total: 3}
+	s1 := updateFanoutProgress(p, "SUCCESS")
+	if s1.Completed != 1 || s1.Success != 1 || s1.Failed != 0 || s1.Skipped != 0 {
+		t.Fatalf("unexpected snapshot after success: %+v", s1)
+	}
+
+	s2 := updateFanoutProgress(p, "FAILED")
+	if s2.Completed != 2 || s2.Success != 1 || s2.Failed != 1 || s2.Skipped != 0 {
+		t.Fatalf("unexpected snapshot after failure: %+v", s2)
+	}
+
+	s3 := updateFanoutProgress(p, "SKIPPED")
+	if s3.Completed != 3 || s3.Success != 1 || s3.Failed != 1 || s3.Skipped != 1 || s3.Total != 3 {
+		t.Fatalf("unexpected snapshot after skip: %+v", s3)
+	}
+}
+
+func TestRetryBackoffDuration_BoundsAndCap(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	base := 500 * time.Millisecond
+	max := 5 * time.Second
+
+	d1 := retryBackoffDuration(1, base, max, rng)
+	if d1 < base || d1 > base+base/2 {
+		t.Fatalf("attempt 1 backoff out of bounds: %s", d1)
+	}
+
+	d2 := retryBackoffDuration(2, base, max, rng)
+	if d2 < 1*time.Second || d2 > 1500*time.Millisecond {
+		t.Fatalf("attempt 2 backoff out of bounds: %s", d2)
+	}
+
+	d4 := retryBackoffDuration(4, base, max, rng)
+	if d4 < 4*time.Second || d4 > max {
+		t.Fatalf("attempt 4 backoff out of bounds/cap: %s", d4)
+	}
+
+	d10 := retryBackoffDuration(10, base, max, rng)
+	if d10 > max {
+		t.Fatalf("attempt 10 should be capped at %s, got %s", max, d10)
 	}
 }

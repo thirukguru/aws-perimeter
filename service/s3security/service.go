@@ -4,6 +4,8 @@ package s3security
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"regexp"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -342,6 +344,23 @@ var sensitiveFilePatterns = []struct {
 	{".dockercfg", "Docker Config", SeverityHigh},
 }
 
+var sensitiveContentPatterns = []struct {
+	Name     string
+	Severity string
+	Regex    *regexp.Regexp
+}{
+	{Name: "AWS Access Key", Severity: SeverityCritical, Regex: regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
+	{Name: "AWS Secret Key", Severity: SeverityCritical, Regex: regexp.MustCompile(`(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{20,}['"]?`)},
+	{Name: "AWS Session Token", Severity: SeverityHigh, Regex: regexp.MustCompile(`(?i)aws[_-]?session[_-]?token\s*[:=]\s*['"]?[A-Za-z0-9/+=]{20,}['"]?`)},
+	{Name: "Private Key Material", Severity: SeverityCritical, Regex: regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----`)},
+	{Name: "Generic Password Assignment", Severity: SeverityHigh, Regex: regexp.MustCompile(`(?i)\b(password|passwd|pwd)\b\s*[:=]\s*['"][^'"]{8,}['"]`)},
+}
+
+var likelyTextExtensions = []string{
+	".env", ".txt", ".log", ".json", ".yaml", ".yml", ".ini", ".conf", ".cfg",
+	".properties", ".sh", ".py", ".js", ".ts", ".go", ".java", ".php", ".xml", ".md",
+}
+
 // GetSensitiveFileExposures finds public buckets with exposed sensitive files
 // Based on EmeraldWhale and ShinyHunters campaign patterns
 func (s *service) GetSensitiveFileExposures(ctx context.Context) ([]SensitiveFileExposure, error) {
@@ -370,11 +389,13 @@ func (s *service) GetSensitiveFileExposures(ctx context.Context) ([]SensitiveFil
 		for _, obj := range objects.Contents {
 			key := aws.ToString(obj.Key)
 			keyLower := strings.ToLower(key)
+			isPublicSeverityDowngrade := !isPublic
 
+			matchedByName := false
 			for _, pattern := range sensitiveFilePatterns {
 				if strings.Contains(keyLower, strings.ToLower(pattern.Pattern)) {
 					severity := pattern.Severity
-					if !isPublic {
+					if isPublicSeverityDowngrade {
 						severity = SeverityMedium // Lower severity if not public
 					}
 
@@ -387,13 +408,87 @@ func (s *service) GetSensitiveFileExposures(ctx context.Context) ([]SensitiveFil
 						Description:    pattern.FileType + " found in S3 bucket",
 						Recommendation: "Remove sensitive file or block public access immediately",
 					})
+					matchedByName = true
 					break // One match per file is enough
 				}
 			}
+			if matchedByName {
+				continue
+			}
+
+			if !isLikelyTextObject(keyLower, aws.ToInt64(obj.Size)) {
+				continue
+			}
+
+			content, err := s.readObjectText(ctx, bucketName, key, 1024*1024)
+			if err != nil || strings.TrimSpace(content) == "" {
+				continue
+			}
+
+			indicatorName, indicatorSeverity, ok := detectSensitiveContent(content)
+			if !ok {
+				continue
+			}
+			if isPublicSeverityDowngrade {
+				indicatorSeverity = SeverityMedium
+			}
+			exposures = append(exposures, SensitiveFileExposure{
+				BucketName:     bucketName,
+				FileName:       key,
+				FileType:       indicatorName,
+				IsPublic:       isPublic,
+				Severity:       indicatorSeverity,
+				Description:    indicatorName + " detected in object content",
+				Recommendation: "Remove secrets from object content and rotate exposed credentials",
+			})
 		}
 	}
 
 	return exposures, nil
+}
+
+func (s *service) readObjectText(ctx context.Context, bucketName, key string, maxBytes int64) (string, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return "", err
+	}
+	defer out.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(out.Body, maxBytes))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func isLikelyTextObject(key string, size int64) bool {
+	if size <= 0 || size > 1024*1024 {
+		return false
+	}
+	if strings.Contains(key, ".git/") || strings.HasSuffix(key, ".git") {
+		return true
+	}
+	for _, ext := range likelyTextExtensions {
+		if strings.HasSuffix(key, ext) {
+			return true
+		}
+	}
+	if strings.Contains(key, "credential") || strings.Contains(key, "secret") || strings.Contains(key, "config") {
+		return true
+	}
+	return false
+}
+
+func detectSensitiveContent(content string) (name, severity string, ok bool) {
+	for _, p := range sensitiveContentPatterns {
+		if p.Regex.MatchString(content) {
+			return p.Name, p.Severity, true
+		}
+	}
+	return "", "", false
 }
 
 func (s *service) isBucketPublic(ctx context.Context, bucketName string) bool {

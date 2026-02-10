@@ -48,38 +48,38 @@ func DrawSecurityTable(input model.RenderSecurityInput) {
 
 	// Security Group Risks
 	if len(input.SecurityGroupRisks) > 0 {
-		drawSGRisksTable(input.SecurityGroupRisks)
+		drawSGRisksTable(input.AccountID, input.Region, input.SecurityGroupRisks)
 	}
 
 	// Public Exposure Risks
 	if len(input.PublicExposureRisks) > 0 {
-		drawExposureTable(input.PublicExposureRisks)
+		drawExposureTable(input.AccountID, input.Region, input.PublicExposureRisks)
 	}
 
 	// NACL Risks
 	if len(input.NACLRisks) > 0 {
-		drawNACLTable(input.NACLRisks)
+		drawNACLTable(input.AccountID, input.Region, input.NACLRisks)
 	}
 
 	// VPC Flow Log Status
-	drawFlowLogTable(input.VPCFlowLogStatus)
+	drawFlowLogTable(input.AccountID, input.Region, input.VPCFlowLogStatus)
 
 	// Unused Security Groups
 	if len(input.UnusedSecurityGroups) > 0 {
-		drawUnusedSGTable(input.UnusedSecurityGroups)
+		drawUnusedSGTable(input.AccountID, input.Region, input.UnusedSecurityGroups)
 	}
 
 	// Phase T: Nation-State Threat Detection
 	if len(input.ManagementExposure) > 0 {
-		drawManagementExposureTable(input.ManagementExposure)
+		drawManagementExposureTable(input.AccountID, input.Region, input.ManagementExposure)
 	}
 
 	if len(input.PlaintextRisks) > 0 {
-		drawPlaintextRisksTable(input.PlaintextRisks)
+		drawPlaintextRisksTable(input.AccountID, input.Region, input.PlaintextRisks)
 	}
 
 	if len(input.IMDSv1Risks) > 0 {
-		drawIMDSv1Table(input.IMDSv1Risks)
+		drawIMDSv1Table(input.AccountID, input.Region, input.IMDSv1Risks)
 	}
 }
 
@@ -156,12 +156,12 @@ func countSeverities(input model.RenderSecurityInput) (critical, high, medium, l
 	return
 }
 
-func drawSGRisksTable(risks []vpc.SGRisk) {
+func drawSGRisksTable(accountID, region string, risks []vpc.SGRisk) {
 	fmt.Println("\n" + text.FgRed.Sprint("🚨 Security Group Risks"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "Security Group", "Risk Type", "Port", "Source CIDR", "Recommendation"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "Security Group", "Risk Type", "Port", "Source CIDR", "Recommendation"})
 
 	for _, r := range risks {
 		severity := formatSeverity(r.Severity)
@@ -173,6 +173,8 @@ func drawSGRisksTable(risks []vpc.SGRisk) {
 		}
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			sgDisplay,
 			r.RiskType,
@@ -186,12 +188,12 @@ func drawSGRisksTable(risks []vpc.SGRisk) {
 	t.Render()
 }
 
-func drawExposureTable(risks []vpc.ExposureRisk) {
+func drawExposureTable(accountID, region string, risks []vpc.ExposureRisk) {
 	fmt.Println("\n" + text.FgRed.Sprint("🌐 Public Exposure Risks"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "Instance", "Public IP", "Open Ports", "Recommendation"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "Instance", "Public IP", "Open Ports", "Recommendation"})
 
 	for _, r := range risks {
 		severity := formatSeverity(r.Severity)
@@ -206,6 +208,8 @@ func drawExposureTable(risks []vpc.ExposureRisk) {
 		}
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			instanceDisplay,
 			r.PublicIP,
@@ -218,16 +222,18 @@ func drawExposureTable(risks []vpc.ExposureRisk) {
 	t.Render()
 }
 
-func drawNACLTable(risks []vpc.NACLRisk) {
+func drawNACLTable(accountID, region string, risks []vpc.NACLRisk) {
 	fmt.Println("\n" + text.FgYellow.Sprint("🔒 Network ACL Risks"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "NACL ID", "Rule #", "Protocol", "CIDR", "Description"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "NACL ID", "Rule #", "Protocol", "CIDR", "Description"})
 
 	for _, r := range risks {
 		severity := formatSeverity(r.Severity)
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			r.NetworkAclID,
 			r.RuleNumber,
@@ -241,12 +247,12 @@ func drawNACLTable(risks []vpc.NACLRisk) {
 	t.Render()
 }
 
-func drawFlowLogTable(statuses []vpc.FlowLogStatus) {
+func drawFlowLogTable(accountID, region string, statuses []vpc.FlowLogStatus) {
 	fmt.Println("\n" + text.FgCyan.Sprint("📊 VPC Flow Log Status"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"VPC", "Flow Logs Enabled", "Recommendation"})
+	t.AppendHeader(table.Row{"Account", "Region", "VPC", "Flow Logs Enabled", "Recommendation"})
 
 	for _, s := range statuses {
 		vpcDisplay := s.VpcID
@@ -263,6 +269,8 @@ func drawFlowLogTable(statuses []vpc.FlowLogStatus) {
 		}
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			vpcDisplay,
 			enabledDisplay,
 			truncate(recommendation, 50),
@@ -273,15 +281,17 @@ func drawFlowLogTable(statuses []vpc.FlowLogStatus) {
 	t.Render()
 }
 
-func drawUnusedSGTable(unused []vpc.UnusedSG) {
+func drawUnusedSGTable(accountID, region string, unused []vpc.UnusedSG) {
 	fmt.Println("\n" + text.FgGreen.Sprint("🗑️ Unused Security Groups (cleanup candidates)"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Security Group ID", "Name", "VPC ID", "Description"})
+	t.AppendHeader(table.Row{"Account", "Region", "Security Group ID", "Name", "VPC ID", "Description"})
 
 	for _, sg := range unused {
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			sg.SecurityGroupID,
 			sg.SecurityGroupName,
 			sg.VpcID,
@@ -320,13 +330,13 @@ func truncate(s string, maxLen int) string {
 
 // Phase T: Nation-State Threat Detection Tables
 
-func drawManagementExposureTable(risks []vpc.ManagementExposure) {
+func drawManagementExposureTable(accountID, region string, risks []vpc.ManagementExposure) {
 	fmt.Println("\n" + text.FgRed.Sprint("⚠️  NATION-STATE THREAT: Management Interface Exposure"))
 	fmt.Println(text.FgHiBlack.Sprint("   Based on AWS Threat Intel - GRU Sandworm campaign targeting network edge devices"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "Instance", "Public IP", "Exposed Ports", "Recommendation"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "Instance", "Public IP", "Exposed Ports", "Recommendation"})
 
 	for _, r := range risks {
 		severity := formatSeverity(r.Severity)
@@ -341,6 +351,8 @@ func drawManagementExposureTable(risks []vpc.ManagementExposure) {
 		}
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			instanceDisplay,
 			r.PublicIP,
@@ -353,19 +365,21 @@ func drawManagementExposureTable(risks []vpc.ManagementExposure) {
 	t.Render()
 }
 
-func drawPlaintextRisksTable(risks []vpc.PlaintextRisk) {
+func drawPlaintextRisksTable(accountID, region string, risks []vpc.PlaintextRisk) {
 	fmt.Println("\n" + text.FgRed.Sprint("⚠️  NATION-STATE THREAT: Plaintext Protocol Exposure"))
 	fmt.Println(text.FgHiBlack.Sprint("   Based on AWS Threat Intel - credential harvesting via traffic interception"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "Security Group", "Protocol", "Port", "Source CIDR", "Recommendation"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "Security Group", "Protocol", "Port", "Source CIDR", "Recommendation"})
 
 	for _, r := range risks {
 		severity := formatSeverity(r.Severity)
 		sgDisplay := fmt.Sprintf("%s\n%s", r.SecurityGroupName, r.SecurityGroupID)
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			sgDisplay,
 			r.Protocol,
@@ -379,13 +393,13 @@ func drawPlaintextRisksTable(risks []vpc.PlaintextRisk) {
 	t.Render()
 }
 
-func drawIMDSv1Table(risks []vpc.IMDSv1Risk) {
+func drawIMDSv1Table(accountID, region string, risks []vpc.IMDSv1Risk) {
 	fmt.Println("\n" + text.FgHiRed.Sprint("⚠️  CREDENTIAL THEFT RISK: IMDSv1 Enabled"))
 	fmt.Println(text.FgHiBlack.Sprint("   IMDSv1 allows SSRF attacks to steal instance credentials"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Severity", "Instance", "IMDSv1", "Recommendation"})
+	t.AppendHeader(table.Row{"Account", "Region", "Severity", "Instance", "IMDSv1", "Recommendation"})
 
 	for _, r := range risks {
 		severity := formatSeverity(r.Severity)
@@ -397,6 +411,8 @@ func drawIMDSv1Table(risks []vpc.IMDSv1Risk) {
 		imdsStatus := text.FgRed.Sprint("ENABLED")
 
 		t.AppendRow(table.Row{
+			accountID,
+			region,
 			severity,
 			instanceDisplay,
 			imdsStatus,

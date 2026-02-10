@@ -21,6 +21,7 @@ import (
 // ExtendedSecurityInput holds all extended service findings
 type ExtendedSecurityInput struct {
 	AccountID string
+	Region    string
 	// Shield/WAF
 	ShieldStatus *shield.DDoSProtectionStatus
 	WAFStatus    []shield.WAFStatus
@@ -86,9 +87,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgYellow.Sprint("⚠️ Recommended VPC Endpoints"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Service", "Reason"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Service", "Reason"})
 		for _, e := range input.MissingEndpoints {
-			t.AppendRow(table.Row{formatSeverity(e.Severity), e.ServiceName, truncate(e.TrafficType, 40)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(e.Severity), e.ServiceName, truncate(e.TrafficType, 40)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -108,9 +109,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgCyan.Sprint("🔀 VPC Peering Connections"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Peering ID", "Cross-Account", "Cross-Region"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Peering ID", "Cross-Account", "Cross-Region"})
 		for _, p := range input.PeeringRisks {
-			t.AppendRow(table.Row{formatSeverity(p.Severity), p.PeeringID, boolIcon(p.IsCrossAccount), boolIcon(p.IsCrossRegion)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(p.Severity), p.PeeringID, boolIcon(p.IsCrossAccount), boolIcon(p.IsCrossRegion)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -121,9 +122,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgYellow.Sprint("🏰 Bastion/Jump Hosts"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Instance", "Public IP", "SSH", "RDP"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Instance", "Public IP", "SSH", "RDP"})
 		for _, b := range input.BastionHosts {
-			t.AppendRow(table.Row{formatSeverity(b.Severity), b.InstanceID, b.PublicIP, boolIcon(b.SSHPort), boolIcon(b.RDPPort)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(b.Severity), b.InstanceID, b.PublicIP, boolIcon(b.SSHPort), boolIcon(b.RDPPort)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -159,9 +160,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("🚨 Root Account Usage Detected!"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Event", "Source IP", "Time"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Event", "Source IP", "Time"})
 		for _, r := range input.RootUsage {
-			t.AppendRow(table.Row{formatSeverity(r.Severity), r.EventName, r.SourceIP, r.EventTime.Format("2006-01-02 15:04")})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(r.Severity), r.EventName, r.SourceIP, r.EventTime.Format("2006-01-02 15:04")})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -172,9 +173,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("⚠️ Cross-Account Roles Without External ID"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Role", "Trusted Account", "Has ExternalID"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Role", "Trusted Account", "Has ExternalID"})
 		for _, r := range input.ExternalIDRisks {
-			t.AppendRow(table.Row{formatSeverity(r.Severity), truncate(r.RoleName, 25), r.TrustedAccount, boolIcon(r.HasExternalID)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(r.Severity), truncate(r.RoleName, 25), r.TrustedAccount, boolIcon(r.HasExternalID)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -184,9 +185,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgYellow.Sprint("📦 Missing Permission Boundaries"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Type", "Principal", "Policies"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Type", "Principal", "Policies"})
 		for _, b := range input.BoundaryRisks {
-			t.AppendRow(table.Row{formatSeverity(b.Severity), b.PrincipalType, truncate(b.PrincipalName, 25), b.AttachedPolicies})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(b.Severity), b.PrincipalType, truncate(b.PrincipalName, 25), b.AttachedPolicies})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -197,9 +198,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("🗄️ RDS Security Issues"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "DB Instance", "Public", "Encrypted"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "DB Instance", "Public", "Encrypted"})
 		for _, r := range input.RDSRisks {
-			t.AppendRow(table.Row{formatSeverity(r.Severity), r.DBInstanceID, boolIcon(r.IsPublic), boolIcon(r.IsEncrypted)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(r.Severity), r.DBInstanceID, boolIcon(r.IsPublic), boolIcon(r.IsEncrypted)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -210,9 +211,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgRed.Sprint("λ Lambda Overly Permissive Roles"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "Function", "Role", "Description"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Function", "Role", "Description"})
 		for _, l := range input.LambdaRoles {
-			t.AppendRow(table.Row{formatSeverity(l.Severity), truncate(l.FunctionName, 20), truncate(l.RoleName, 20), truncate(l.Description, 30)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(l.Severity), truncate(l.FunctionName, 20), truncate(l.RoleName, 20), truncate(l.Description, 30)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()
@@ -223,9 +224,9 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		fmt.Println("\n" + text.FgYellow.Sprint("⚖️ ALB Security Issues"))
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
-		t.AppendHeader(table.Row{"Severity", "ALB", "Risk Type", "Description"})
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "ALB", "Risk Type", "Description"})
 		for _, r := range input.ALBRisks {
-			t.AppendRow(table.Row{formatSeverity(r.Severity), truncate(r.LoadBalancerName, 20), r.RiskType, truncate(r.Description, 30)})
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(r.Severity), truncate(r.LoadBalancerName, 20), r.RiskType, truncate(r.Description, 30)})
 		}
 		t.SetStyle(table.StyleRounded)
 		t.Render()

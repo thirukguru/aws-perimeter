@@ -69,13 +69,15 @@
 
 ---
 
-## 🔑 Secrets Detection (3 Rules)
+## 🔑 Secrets Detection (5 Rules)
 
 | Rule | Description |
 |------|-------------|
 | **Lambda Environment Variables** | Scans Lambda env vars for hardcoded secrets (AWS keys, API keys, tokens) |
+| **Lambda Code Package Secrets** | Scans Lambda deployment package contents (ZIP) for embedded secrets and private keys |
 | **EC2 User Data** | Checks EC2 instance user data for embedded credentials |
-| **Public S3 Objects** | Scans text files in public buckets for exposed secrets |
+| **Public S3 Objects** | Scans text files and object content in public buckets for exposed secrets |
+| **ECR Layer Secrets** | Scans ECR image layers (tar/gzip) for embedded secrets in text-like files |
 
 ---
 
@@ -222,7 +224,7 @@
 | IAM Security | 8 | ✅ |
 | S3 Security | 4 | ✅ |
 | CloudTrail | 3 | ✅ |
-| Secrets | 3 | ✅ |
+| Secrets | 5 | ✅ |
 | Advanced | 4 | ✅ |
 | CloudFront | 6 | ✅ |
 | API Gateway | 10 | ✅ |
@@ -231,7 +233,7 @@
 | EKS Security | 12 | ✅ |
 | Extended | 15 | ✅ |
 | AI Attack Detection | 10 | ✅ |
-| **Total** | **105** | ✅ |
+| **Total** | **107** | ✅ |
 
 ---
 

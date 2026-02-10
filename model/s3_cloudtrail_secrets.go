@@ -8,11 +8,12 @@ import (
 
 // RenderS3Input contains S3 security findings
 type RenderS3Input struct {
-	AccountID       string
-	Region          string
-	PublicBuckets   []s3security.BucketRisk
-	UnencryptedBkts []s3security.BucketEncryption
-	RiskyPolicies   []s3security.BucketPolicy
+	AccountID          string
+	Region             string
+	PublicBuckets      []s3security.BucketRisk
+	UnencryptedBkts    []s3security.BucketEncryption
+	RiskyPolicies      []s3security.BucketPolicy
+	SensitiveExposures []s3security.SensitiveFileExposure
 }
 
 // RenderCloudTrailInput contains CloudTrail findings
@@ -30,17 +31,19 @@ type RenderSecretsInput struct {
 	LambdaSecrets []secrets.SecretFinding
 	EC2Secrets    []secrets.SecretFinding
 	S3Secrets     []secrets.SecretFinding
+	ECRSecrets    []secrets.SecretFinding
 }
 
 // S3ReportJSON represents S3 JSON output
 type S3ReportJSON struct {
-	AccountID       string             `json:"account_id"`
-	Region          string             `json:"region,omitempty"`
-	GeneratedAt     string             `json:"generated_at"`
-	HasFindings     bool               `json:"has_findings"`
-	PublicBuckets   []BucketRiskJSON   `json:"public_buckets"`
-	UnencryptedBkts []BucketEncJSON    `json:"unencrypted_buckets"`
-	RiskyPolicies   []BucketPolicyJSON `json:"risky_policies"`
+	AccountID          string                      `json:"account_id"`
+	Region             string                      `json:"region,omitempty"`
+	GeneratedAt        string                      `json:"generated_at"`
+	HasFindings        bool                        `json:"has_findings"`
+	PublicBuckets      []BucketRiskJSON            `json:"public_buckets"`
+	UnencryptedBkts    []BucketEncJSON             `json:"unencrypted_buckets"`
+	RiskyPolicies      []BucketPolicyJSON          `json:"risky_policies"`
+	SensitiveExposures []SensitiveFileExposureJSON `json:"sensitive_exposures,omitempty"`
 }
 
 // BucketRiskJSON for JSON output
@@ -67,6 +70,17 @@ type BucketPolicyJSON struct {
 	AllowsAnyAction bool     `json:"allows_any_action"`
 	RiskyStatements []string `json:"risky_statements"`
 	Severity        string   `json:"severity"`
+}
+
+// SensitiveFileExposureJSON for JSON output
+type SensitiveFileExposureJSON struct {
+	BucketName     string `json:"bucket_name"`
+	FileName       string `json:"file_name"`
+	FileType       string `json:"file_type"`
+	IsPublic       bool   `json:"is_public"`
+	Severity       string `json:"severity"`
+	Description    string `json:"description"`
+	Recommendation string `json:"recommendation"`
 }
 
 // CloudTrailReportJSON for JSON output

@@ -161,9 +161,10 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 
 	// S3 Security Results
 	var (
-		publicBuckets   []s3security.BucketRisk
-		unencryptedBkts []s3security.BucketEncryption
-		riskyPolicies   []s3security.BucketPolicy
+		publicBuckets      []s3security.BucketRisk
+		unencryptedBkts    []s3security.BucketEncryption
+		riskyPolicies      []s3security.BucketPolicy
+		sensitiveExposures []s3security.SensitiveFileExposure
 	)
 
 	// CloudTrail Results
@@ -175,8 +176,10 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	// Secrets Results
 	var (
 		lambdaSecrets []secrets.SecretFinding
+		lambdaCode    []secrets.SecretFinding
 		ec2Secrets    []secrets.SecretFinding
 		s3Secrets     []secrets.SecretFinding
+		ecrSecrets    []secrets.SecretFinding
 	)
 
 	// New Services Results
@@ -332,6 +335,11 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		riskyPolicies, err = s.s3Service.GetRiskyBucketPolicies(groupCtx)
 		return err
 	})
+	g.Go(func() error {
+		var err error
+		sensitiveExposures, err = s.s3Service.GetSensitiveFileExposures(groupCtx)
+		return err
+	})
 
 	// CloudTrail Checks
 	g.Go(func() error {
@@ -353,12 +361,22 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	})
 	g.Go(func() error {
 		var err error
+		lambdaCode, err = s.secretsService.ScanLambdaCodePackages(groupCtx)
+		return err
+	})
+	g.Go(func() error {
+		var err error
 		ec2Secrets, err = s.secretsService.ScanEC2UserData(groupCtx)
 		return err
 	})
 	g.Go(func() error {
 		var err error
 		s3Secrets, err = s.secretsService.ScanPublicS3Objects(groupCtx)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		ecrSecrets, err = s.secretsService.ScanECRImageLayers(groupCtx)
 		return err
 	})
 
@@ -640,11 +658,12 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	}
 
 	s3Input := model.RenderS3Input{
-		AccountID:       *stsResult.Account,
-		Region:          flags.Region,
-		PublicBuckets:   publicBuckets,
-		UnencryptedBkts: unencryptedBkts,
-		RiskyPolicies:   riskyPolicies,
+		AccountID:          *stsResult.Account,
+		Region:             flags.Region,
+		PublicBuckets:      publicBuckets,
+		UnencryptedBkts:    unencryptedBkts,
+		RiskyPolicies:      riskyPolicies,
+		SensitiveExposures: sensitiveExposures,
 	}
 	if err := s.outputService.RenderS3(s3Input); err != nil {
 		return err
@@ -663,9 +682,10 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	secretsInput := model.RenderSecretsInput{
 		AccountID:     *stsResult.Account,
 		Region:        flags.Region,
-		LambdaSecrets: lambdaSecrets,
+		LambdaSecrets: append(lambdaSecrets, lambdaCode...),
 		EC2Secrets:    ec2Secrets,
 		S3Secrets:     s3Secrets,
+		ECRSecrets:    ecrSecrets,
 	}
 	if err := s.outputService.RenderSecrets(secretsInput); err != nil {
 		return err
@@ -694,6 +714,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 	// Extended Security Checks
 	extInput := extratables.ExtendedSecurityInput{
 		AccountID:        *stsResult.Account,
+		Region:           flags.Region,
 		ShieldStatus:     shieldStatus,
 		ALBRisks:         albRisks,
 		ListenerRisks:    listenerRisks,

@@ -2,14 +2,25 @@
 package secrets
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"io"
+	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -22,6 +33,18 @@ const (
 	// S3 scanning limits
 	maxFileSizeToScan   = 100 * 1024 // 100KB max file size
 	maxObjectsPerBucket = 100        // Limit objects per bucket
+
+	// Lambda package scanning limits
+	maxLambdaPackageSize = 10 * 1024 * 1024 // 10MB
+	maxLambdaFiles       = 200
+	maxLambdaFileSize    = 200 * 1024 // 200KB
+
+	// ECR scanning limits
+	maxECRRepositories = 20
+	maxECRImages       = 5
+	maxECRLayers       = 5
+	maxECRLayerBytes   = 8 * 1024 * 1024 // 8MB
+	maxECRFiles        = 200
 )
 
 // SecretFinding represents a detected secret
@@ -54,13 +77,16 @@ type service struct {
 	lambdaClient *lambda.Client
 	ec2Client    *ec2.Client
 	s3Client     *s3.Client
+	ecrClient    *ecr.Client
 }
 
 // Service is the interface for secrets detection
 type Service interface {
 	ScanLambdaEnvVars(ctx context.Context) ([]SecretFinding, error)
+	ScanLambdaCodePackages(ctx context.Context) ([]SecretFinding, error)
 	ScanEC2UserData(ctx context.Context) ([]SecretFinding, error)
 	ScanPublicS3Objects(ctx context.Context) ([]SecretFinding, error)
+	ScanECRImageLayers(ctx context.Context) ([]SecretFinding, error)
 }
 
 // NewService creates a new secrets detection service
@@ -69,6 +95,7 @@ func NewService(cfg aws.Config) Service {
 		lambdaClient: lambda.NewFromConfig(cfg),
 		ec2Client:    ec2.NewFromConfig(cfg),
 		s3Client:     s3.NewFromConfig(cfg),
+		ecrClient:    ecr.NewFromConfig(cfg),
 	}
 }
 
@@ -134,6 +161,52 @@ func (s *service) ScanLambdaEnvVars(ctx context.Context) ([]SecretFinding, error
 		}
 	}
 
+	return findings, nil
+}
+
+// ScanLambdaCodePackages scans Lambda deployment ZIP contents for embedded secrets.
+func (s *service) ScanLambdaCodePackages(ctx context.Context) ([]SecretFinding, error) {
+	var findings []SecretFinding
+	httpClient := &http.Client{Timeout: 20 * time.Second}
+
+	paginator := lambda.NewListFunctionsPaginator(s.lambdaClient, &lambda.ListFunctionsInput{})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, fn := range page.Functions {
+			fnName := aws.ToString(fn.FunctionName)
+			fnArn := aws.ToString(fn.FunctionArn)
+
+			out, err := s.lambdaClient.GetFunction(ctx, &lambda.GetFunctionInput{
+				FunctionName: fn.FunctionName,
+			})
+			if err != nil || out == nil || out.Code == nil || out.Code.Location == nil {
+				continue
+			}
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, aws.ToString(out.Code.Location), nil)
+			if err != nil {
+				continue
+			}
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				continue
+			}
+			if resp.StatusCode != http.StatusOK {
+				_ = resp.Body.Close()
+				continue
+			}
+			data, err := io.ReadAll(io.LimitReader(resp.Body, maxLambdaPackageSize))
+			_ = resp.Body.Close()
+			if err != nil || len(data) == 0 {
+				continue
+			}
+
+			findings = append(findings, scanLambdaZipBytes(fnArn, fnName, data)...)
+		}
+	}
 	return findings, nil
 }
 
@@ -358,4 +431,236 @@ func isTextFile(key string) bool {
 		}
 	}
 	return false
+}
+
+func scanLambdaZipBytes(functionArn, functionName string, zipData []byte) []SecretFinding {
+	findings := []SecretFinding{}
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return findings
+	}
+
+	filesScanned := 0
+	for _, f := range zr.File {
+		if filesScanned >= maxLambdaFiles {
+			break
+		}
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		name := strings.ToLower(f.Name)
+		if !isLambdaTextCandidate(name) {
+			continue
+		}
+		filesScanned++
+
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		content, err := io.ReadAll(io.LimitReader(rc, maxLambdaFileSize))
+		_ = rc.Close()
+		if err != nil || len(content) == 0 {
+			continue
+		}
+		contentStr := string(content)
+
+		for secretType, pattern := range secretPatterns {
+			if pattern.MatchString(contentStr) {
+				findings = append(findings, SecretFinding{
+					ResourceType:   "LambdaCode",
+					ResourceID:     functionArn,
+					ResourceName:   functionName,
+					SecretType:     secretType,
+					Location:       fmt.Sprintf("Lambda Package File: %s", f.Name),
+					MatchedPattern: "[REDACTED - " + secretType + " detected]",
+					Severity:       severityForSecretType(secretType),
+					Recommendation: "Remove hardcoded secret from Lambda package and rotate exposed credentials",
+				})
+				break
+			}
+		}
+	}
+	return findings
+}
+
+type ecrManifest struct {
+	Layers []struct {
+		Digest string `json:"digest"`
+	} `json:"layers"`
+}
+
+// ScanECRImageLayers scans ECR image layers for embedded secrets in text-like files.
+func (s *service) ScanECRImageLayers(ctx context.Context) ([]SecretFinding, error) {
+	findings := []SecretFinding{}
+	httpClient := &http.Client{Timeout: 20 * time.Second}
+
+	repoPaginator := ecr.NewDescribeRepositoriesPaginator(s.ecrClient, &ecr.DescribeRepositoriesInput{
+		MaxResults: aws.Int32(maxECRRepositories),
+	})
+
+	for repoPaginator.HasMorePages() {
+		repoPage, err := repoPaginator.NextPage(ctx)
+		if err != nil {
+			return findings, nil
+		}
+		for _, repo := range repoPage.Repositories {
+			repoName := aws.ToString(repo.RepositoryName)
+			if repoName == "" {
+				continue
+			}
+
+			imagePaginator := ecr.NewDescribeImagesPaginator(s.ecrClient, &ecr.DescribeImagesInput{
+				RepositoryName: aws.String(repoName),
+				MaxResults:     aws.Int32(maxECRImages),
+			})
+			imageCount := 0
+			for imagePaginator.HasMorePages() && imageCount < maxECRImages {
+				imgPage, err := imagePaginator.NextPage(ctx)
+				if err != nil {
+					break
+				}
+				for _, imgDetail := range imgPage.ImageDetails {
+					if imageCount >= maxECRImages {
+						break
+					}
+					imageCount++
+					if imgDetail.ImageDigest == nil {
+						continue
+					}
+
+					imageID := ecrtypes.ImageIdentifier{ImageDigest: imgDetail.ImageDigest}
+					imageRef := repoName + "@" + aws.ToString(imgDetail.ImageDigest)
+					if len(imgDetail.ImageTags) > 0 && strings.TrimSpace(imgDetail.ImageTags[0]) != "" {
+						tag := imgDetail.ImageTags[0]
+						imageID.ImageTag = aws.String(tag)
+						imageRef = repoName + ":" + tag
+					}
+
+					batchOut, err := s.ecrClient.BatchGetImage(ctx, &ecr.BatchGetImageInput{
+						RepositoryName: aws.String(repoName),
+						ImageIds:       []ecrtypes.ImageIdentifier{imageID},
+						AcceptedMediaTypes: []string{
+							"application/vnd.docker.distribution.manifest.v2+json",
+							"application/vnd.oci.image.manifest.v1+json",
+						},
+					})
+					if err != nil || len(batchOut.Images) == 0 || batchOut.Images[0].ImageManifest == nil {
+						continue
+					}
+
+					var manifest ecrManifest
+					if err := json.Unmarshal([]byte(aws.ToString(batchOut.Images[0].ImageManifest)), &manifest); err != nil {
+						continue
+					}
+
+					layerCount := 0
+					for _, layer := range manifest.Layers {
+						if layerCount >= maxECRLayers || strings.TrimSpace(layer.Digest) == "" {
+							break
+						}
+						layerCount++
+						layerOut, err := s.ecrClient.GetDownloadUrlForLayer(ctx, &ecr.GetDownloadUrlForLayerInput{
+							RepositoryName: aws.String(repoName),
+							LayerDigest:    aws.String(layer.Digest),
+						})
+						if err != nil || layerOut.DownloadUrl == nil {
+							continue
+						}
+
+						req, err := http.NewRequestWithContext(ctx, http.MethodGet, aws.ToString(layerOut.DownloadUrl), nil)
+						if err != nil {
+							continue
+						}
+						resp, err := httpClient.Do(req)
+						if err != nil {
+							continue
+						}
+						if resp.StatusCode != http.StatusOK {
+							_ = resp.Body.Close()
+							continue
+						}
+						layerBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxECRLayerBytes))
+						_ = resp.Body.Close()
+						if err != nil || len(layerBytes) == 0 {
+							continue
+						}
+						findings = append(findings, scanECRLayerBytes(imageRef, layer.Digest, layerBytes)...)
+					}
+				}
+			}
+		}
+	}
+	return findings, nil
+}
+
+func scanECRLayerBytes(imageRef, layerDigest string, data []byte) []SecretFinding {
+	findings := []SecretFinding{}
+	gr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return findings
+	}
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+
+	filesScanned := 0
+	for filesScanned < maxECRFiles {
+		hdr, err := tr.Next()
+		if err != nil {
+			break
+		}
+		if hdr == nil || hdr.FileInfo().IsDir() {
+			continue
+		}
+		name := strings.ToLower(hdr.Name)
+		if !isLambdaTextCandidate(name) {
+			continue
+		}
+		filesScanned++
+		content, err := io.ReadAll(io.LimitReader(tr, maxLambdaFileSize))
+		if err != nil || len(content) == 0 {
+			continue
+		}
+		contentStr := string(content)
+		for secretType, pattern := range secretPatterns {
+			if pattern.MatchString(contentStr) {
+				findings = append(findings, SecretFinding{
+					ResourceType:   "ECRLayer",
+					ResourceID:     imageRef,
+					ResourceName:   imageRef,
+					SecretType:     secretType,
+					Location:       fmt.Sprintf("ECR Layer %s File: %s", layerDigest, hdr.Name),
+					MatchedPattern: "[REDACTED - " + secretType + " detected]",
+					Severity:       severityForSecretType(secretType),
+					Recommendation: "Remove hardcoded secret from image layer, rebuild image, and rotate exposed credentials",
+				})
+				break
+			}
+		}
+	}
+	return findings
+}
+
+func isLambdaTextCandidate(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	for _, allowed := range textFileExtensions {
+		if ext == allowed {
+			return true
+		}
+	}
+	base := strings.ToLower(filepath.Base(path))
+	if strings.Contains(base, ".env") || strings.Contains(base, "credential") || strings.Contains(base, "config") {
+		return true
+	}
+	return false
+}
+
+func severityForSecretType(secretType string) string {
+	switch secretType {
+	case "GENERIC_SECRET":
+		return SeverityHigh
+	default:
+		return SeverityCritical
+	}
 }
