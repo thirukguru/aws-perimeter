@@ -19,6 +19,8 @@ func (s *service) GetParsedFlags() (model.Flags, error) {
 	regions := pflag.String("regions", "", "Comma-separated AWS regions to scan")
 	allRegions := pflag.Bool("all-regions", false, "Scan all enabled AWS regions")
 	orgScan := pflag.Bool("org-scan", false, "Scan all organization accounts (management account required)")
+	orgRoleName := pflag.String("org-role-name", "OrganizationAccountAccessRole", "IAM role name to assume in member accounts")
+	externalID := pflag.String("external-id", "", "External ID for cross-account role assumption")
 	version := pflag.BoolP("version", "v", false, "Show version information")
 	output := pflag.StringP("output", "o", "table", "Output format (table, json, or html)")
 	outputFile := pflag.StringP("output-file", "f", "", "Output file path (required for html format)")
@@ -29,6 +31,8 @@ func (s *service) GetParsedFlags() (model.Flags, error) {
 	compare := pflag.Bool("compare", false, "Compare two most recent scans")
 	exportJSON := pflag.String("export-json", "", "Export trend output as JSON to file path")
 	exportCSV := pflag.String("export-csv", "", "Export trend output as CSV to file path")
+	accountID := pflag.String("account-id", "", "Account ID filter for trends/history queries")
+	maxParallel := pflag.Int("max-parallel", 3, "Maximum concurrent scan units for region/account fanout")
 	dryRun := pflag.Bool("dry-run", false, "Preview remediation actions without applying changes")
 	remediate := pflag.Bool("remediate", false, "Apply supported automated remediations")
 	dashboardPort := pflag.Int("dashboard-port", 8080, "Port for local dashboard server")
@@ -52,6 +56,8 @@ func (s *service) GetParsedFlags() (model.Flags, error) {
 		Regions:       parsedRegions,
 		AllRegions:    *allRegions,
 		OrgScan:       *orgScan,
+		OrgRoleName:   *orgRoleName,
+		ExternalID:    *externalID,
 		Version:       *version,
 		Output:        *output,
 		OutputFile:    *outputFile,
@@ -62,6 +68,8 @@ func (s *service) GetParsedFlags() (model.Flags, error) {
 		Compare:       *compare,
 		ExportJSON:    *exportJSON,
 		ExportCSV:     *exportCSV,
+		AccountID:     *accountID,
+		MaxParallel:   *maxParallel,
 		DryRun:        *dryRun,
 		Remediate:     *remediate,
 		DashboardPort: *dashboardPort,

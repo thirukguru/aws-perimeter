@@ -54,6 +54,7 @@ type Finding struct {
 
 // TrendPoint is a daily aggregate for trend visualizations.
 type TrendPoint struct {
+	AccountID string `json:"account_id"`
 	Region    string `json:"region"`
 	Date      string `json:"date"`
 	Total     int    `json:"total"`

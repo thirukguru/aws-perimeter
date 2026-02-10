@@ -243,6 +243,7 @@ func (s *service) GetTrends(accountID string, days int) ([]TrendPoint, error) {
 	}
 	query := `
 		SELECT
+			account_id,
 			region,
 			DATE(scan_timestamp) as day,
 			MAX(total_findings),
@@ -259,7 +260,7 @@ func (s *service) GetTrends(accountID string, days int) ([]TrendPoint, error) {
 		query += " AND account_id=?"
 		args = append(args, accountID)
 	}
-	query += " GROUP BY region, DATE(scan_timestamp) ORDER BY day ASC, region ASC"
+	query += " GROUP BY account_id, region, DATE(scan_timestamp) ORDER BY day ASC, account_id ASC, region ASC"
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -269,7 +270,7 @@ func (s *service) GetTrends(accountID string, days int) ([]TrendPoint, error) {
 	points := []TrendPoint{}
 	for rows.Next() {
 		var p TrendPoint
-		if err := rows.Scan(&p.Region, &p.Date, &p.Total, &p.Critical, &p.High, &p.Medium, &p.Low, &p.Info); err != nil {
+		if err := rows.Scan(&p.AccountID, &p.Region, &p.Date, &p.Total, &p.Critical, &p.High, &p.Medium, &p.Low, &p.Info); err != nil {
 			return nil, err
 		}
 		p.Score = 100 - p.Critical*15 - p.High*8 - p.Medium*3 - p.Low
@@ -357,7 +358,7 @@ func (s *service) GetScanComparison(scanID1, scanID2 int64) (*ScanComparison, er
 }
 
 func (s *service) findingHashesByScan(scanID int64) ([]string, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT finding_hash FROM scan_findings WHERE scan_id=?`, scanID)
+	rows, err := s.db.Query(`SELECT DISTINCT finding_hash FROM scan_findings WHERE scan_id=? AND status='OPEN'`, scanID)
 	if err != nil {
 		return nil, err
 	}

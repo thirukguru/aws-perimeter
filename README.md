@@ -150,9 +150,10 @@ aws-perimeter --profile prod           # Specific AWS profile
 aws-perimeter --region us-west-2       # Specific region
 aws-perimeter --regions us-east-1,us-west-2            # Multi-region scan
 aws-perimeter --all-regions                            # Scan all enabled regions
+aws-perimeter --org-scan --org-role-name OrganizationAccountAccessRole  # Multi-account org scan
 aws-perimeter --output html --output-file report.html  # Generate HTML report
 aws-perimeter --store --profile prod --region us-west-2 # Run + persist scan
-aws-perimeter --trends --trend-days 30                 # Show historical trend table
+aws-perimeter --trends --trend-days 30 --account-id 123456789012  # Show historical trend table
 aws-perimeter history list --db-path ~/.aws-perimeter/history.db
 aws-perimeter dashboard --port 8080
 ```
@@ -165,7 +166,9 @@ aws-perimeter dashboard --port 8080
 | `--region` | `-r` | AWS region |
 | `--regions` | | Comma-separated regions |
 | `--all-regions` | | Scan all enabled regions |
-| `--org-scan` | | Scan organization accounts (planned wiring) |
+| `--org-scan` | | Scan all active AWS Organization accounts |
+| `--org-role-name` | | IAM role name to assume in member accounts |
+| `--external-id` | | External ID for cross-account assume role |
 | `--output` | `-o` | Output format: `table`, `json`, or `html` |
 | `--output-file` | `-f` | Output file (required for html) |
 | `--store` | | Persist scan results in SQLite |
@@ -175,6 +178,8 @@ aws-perimeter dashboard --port 8080
 | `--compare` | | Compare two recent scans |
 | `--export-json` | | Export trends JSON file |
 | `--export-csv` | | Export trends CSV file |
+| `--account-id` | | Account filter for trends/history |
+| `--max-parallel` | | Max concurrent region/account scan units |
 | `--dry-run` | | Remediation preview mode |
 | `--remediate` | | Apply supported remediations |
 | `--dashboard-port` | | Dashboard port (root flag; dashboard subcommand uses `--port`) |
@@ -182,7 +187,7 @@ aws-perimeter dashboard --port 8080
 
 ## Required AWS Permissions
 
-The following read-only permissions are required:
+The following permissions are required for full feature coverage (including multi-region and org scan):
 
 ```json
 {
@@ -192,6 +197,10 @@ The following read-only permissions are required:
       "Effect": "Allow",
       "Action": [
         "sts:GetCallerIdentity",
+        "sts:AssumeRole",
+        
+        "organizations:DescribeOrganization",
+        "organizations:ListAccounts",
         
         "ec2:Describe*",
         "ec2:GetEbsEncryptionByDefault",
@@ -267,6 +276,18 @@ The following read-only permissions are required:
   ]
 }
 ```
+
+For `--org-scan`, the management principal must be allowed to assume a member-account role (default: `OrganizationAccountAccessRole`), for example:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "sts:AssumeRole",
+  "Resource": "arn:aws:iam::*:role/OrganizationAccountAccessRole"
+}
+```
+
+Member account role trust policy must also allow your scanner principal (user/role) to assume it (and include `sts:ExternalId` condition if you use `--external-id`).
 
 > **Tip**: For a quick start, attach the AWS managed policy `arn:aws:iam::aws:policy/ReadOnlyAccess` to your IAM user/role.
 

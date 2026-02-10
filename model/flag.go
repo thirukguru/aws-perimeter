@@ -7,6 +7,8 @@ type Flags struct {
 	Regions       []string
 	AllRegions    bool
 	OrgScan       bool
+	OrgRoleName   string
+	ExternalID    string
 	Version       bool
 	Output        string
 	OutputFile    string
@@ -17,6 +19,8 @@ type Flags struct {
 	Compare       bool
 	ExportJSON    string
 	ExportCSV     string
+	AccountID     string
+	MaxParallel   int
 	DryRun        bool
 	Remediate     bool
 	DashboardPort int

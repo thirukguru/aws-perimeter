@@ -70,9 +70,12 @@ func run() error {
 		if storageService == nil {
 			return fmt.Errorf("--trends requires initialized storage")
 		}
-		accountID, err := getAccountIDForFlags(flags)
-		if err != nil {
-			return fmt.Errorf("failed to get account ID for trends: %w", err)
+		accountID := flags.AccountID
+		if accountID == "" {
+			accountID, err = getAccountIDForFlags(flags)
+			if err != nil {
+				return fmt.Errorf("failed to get account ID for trends: %w", err)
+			}
 		}
 		return runTrendWorkflow(storageService, struct {
 			TrendDays  int
@@ -87,6 +90,10 @@ func run() error {
 			ExportCSV:  flags.ExportCSV,
 			AccountID:  accountID,
 		})
+	}
+
+	if flags.OrgScan {
+		return runOrgScans(flags, versionInfo, storageService)
 	}
 
 	if flags.AllRegions || len(flags.Regions) > 0 {

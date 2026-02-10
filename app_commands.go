@@ -182,9 +182,10 @@ func runDashboardCommand(args []string) error {
         tableWrap.innerHTML = '<em>No trend data found.</em>';
         return;
       }
-      let html = '<table><thead><tr><th>Region</th><th>Date</th><th>Total</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Score</th></tr></thead><tbody>';
+      let html = '<table><thead><tr><th>Account</th><th>Region</th><th>Date</th><th>Total</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Score</th></tr></thead><tbody>';
       for (const r of rows) {
         html += '<tr>' +
+          '<td>' + (r.account_id || '-') + '</td>' +
           '<td>' + (r.region || '-') + '</td>' +
           '<td>' + r.date + '</td>' +
           '<td>' + r.total + '</td>' +
@@ -211,7 +212,7 @@ func runDashboardCommand(args []string) error {
           chartStatus.innerHTML = '<div class="error">Chart.js failed to load; showing table fallback.</div>';
           return;
         }
-        const labels = rows.map(x => (x.region ? (x.region + ' ') : '') + x.date);
+        const labels = rows.map(x => (x.account_id ? (x.account_id + ' / ') : '') + (x.region ? (x.region + ' ') : '') + x.date);
         const vals = rows.map(x => x.total);
         new Chart(document.getElementById('trend'), {
           type: 'line',
@@ -225,7 +226,7 @@ func runDashboardCommand(args []string) error {
               x: {
                 title: {
                   display: true,
-                  text: 'Region + Date'
+                  text: 'Account / Region / Date'
                 }
               },
               y: {
@@ -317,9 +318,9 @@ func runTrendWorkflow(store storage.Service, flags struct {
 		defer f.Close()
 		w := csv.NewWriter(f)
 		defer w.Flush()
-		_ = w.Write([]string{"region", "date", "total", "critical", "high", "medium", "low", "info", "score"})
+		_ = w.Write([]string{"account_id", "region", "date", "total", "critical", "high", "medium", "low", "info", "score"})
 		for _, p := range points {
-			_ = w.Write([]string{p.Region, p.Date, strconv.Itoa(p.Total), strconv.Itoa(p.Critical), strconv.Itoa(p.High), strconv.Itoa(p.Medium), strconv.Itoa(p.Low), strconv.Itoa(p.Info), strconv.Itoa(p.Score)})
+			_ = w.Write([]string{p.AccountID, p.Region, p.Date, strconv.Itoa(p.Total), strconv.Itoa(p.Critical), strconv.Itoa(p.High), strconv.Itoa(p.Medium), strconv.Itoa(p.Low), strconv.Itoa(p.Info), strconv.Itoa(p.Score)})
 		}
 	}
 

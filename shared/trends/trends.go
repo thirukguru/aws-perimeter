@@ -12,9 +12,9 @@ import (
 func RenderTrendTable(points []storage.TrendPoint) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Region", "Date", "Total", "Critical", "High", "Medium", "Low", "Score"})
+	t.AppendHeader(table.Row{"Account", "Region", "Date", "Total", "Critical", "High", "Medium", "Low", "Score"})
 	for _, p := range points {
-		t.AppendRow(table.Row{p.Region, p.Date, p.Total, p.Critical, p.High, p.Medium, p.Low, p.Score})
+		t.AppendRow(table.Row{p.AccountID, p.Region, p.Date, p.Total, p.Critical, p.High, p.Medium, p.Low, p.Score})
 	}
 	t.SetStyle(table.StyleRounded)
 	t.Render()
