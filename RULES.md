@@ -297,6 +297,18 @@
 
 ---
 
+## 🏭 Redshift Security (5 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **Publicly Accessible Cluster** | Detects Redshift clusters exposed via public networking |
+| **Cluster Encryption Disabled** | Flags Redshift clusters without encryption at rest |
+| **Weak Master Password Policy** | Flags clusters not using managed admin credentials secret for stronger credential governance |
+| **Audit Logging Disabled** | Detects clusters without Redshift audit logging enabled |
+| **Enhanced VPC Routing Disabled** | Flags clusters where enhanced VPC routing is not enabled |
+
+---
+
 ## 📊 Summary
 
 | Category | Rule Count | Production Ready |
@@ -321,7 +333,8 @@
 | Lambda Security Expansion | 5 | ✅ |
 | EventBridge/Step Functions Security | 3 | ✅ |
 | ElastiCache/MemoryDB Security | 5 | ✅ |
-| **Total** | **139** | ✅ |
+| Redshift Security | 5 | ✅ |
+| **Total** | **144** | ✅ |
 
 ---
 

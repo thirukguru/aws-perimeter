@@ -44,6 +44,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/messaging"
 	"github.com/thirukguru/aws-perimeter/service/orchestrator"
 	"github.com/thirukguru/aws-perimeter/service/output"
+	"github.com/thirukguru/aws-perimeter/service/redshiftsecurity"
 	"github.com/thirukguru/aws-perimeter/service/resourcepolicy"
 	"github.com/thirukguru/aws-perimeter/service/route53"
 	"github.com/thirukguru/aws-perimeter/service/s3security"
@@ -170,6 +171,7 @@ func buildOrchestratorService(
 	ecrSecService := ecrsecurity.NewService(awsCfg)
 	eventSecurityService := eventsecurity.NewService(awsCfg)
 	cacheSecurityService := cachesecurity.NewService(awsCfg)
+	redshiftSecService := redshiftsecurity.NewService(awsCfg)
 	cloudtrailSecService := cloudtrailsecurity.NewService(awsCfg)
 	configService := config.NewService(awsCfg)
 	dataprotectionSvc := dataprotection.NewService(awsCfg)
@@ -204,6 +206,7 @@ func buildOrchestratorService(
 		ecrSecService,
 		eventSecurityService,
 		cacheSecurityService,
+		redshiftSecService,
 		cloudtrailSecService,
 		configService,
 		dataprotectionSvc,

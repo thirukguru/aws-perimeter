@@ -23,6 +23,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/logging"
 	"github.com/thirukguru/aws-perimeter/service/messaging"
 	"github.com/thirukguru/aws-perimeter/service/output"
+	"github.com/thirukguru/aws-perimeter/service/redshiftsecurity"
 	"github.com/thirukguru/aws-perimeter/service/resourcepolicy"
 	"github.com/thirukguru/aws-perimeter/service/route53"
 	"github.com/thirukguru/aws-perimeter/service/s3security"
@@ -60,6 +61,7 @@ type service struct {
 	ecrSecService        ecrsecurity.Service
 	eventSecurityService eventsecurity.Service
 	cacheSecurityService cachesecurity.Service
+	redshiftSecService   redshiftsecurity.Service
 	cloudtrailSecService cloudtrailsecurity.Service
 	configService        config.Service
 	dataprotectionSvc    dataprotection.Service

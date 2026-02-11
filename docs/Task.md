@@ -120,11 +120,11 @@
 - [x] Default ports used without hardening
 
 ### Redshift Security (5 checks)
-- [ ] Publicly accessible cluster
-- [ ] Cluster encryption disabled
-- [ ] Weak master password policy
-- [ ] Audit logging disabled
-- [ ] Enhanced VPC routing disabled
+- [x] Publicly accessible cluster
+- [x] Cluster encryption disabled
+- [x] Weak master password policy
+- [x] Audit logging disabled
+- [x] Enhanced VPC routing disabled
 
 ### Cognito Security (5 checks)
 - [ ] Weak password/MFA policy

@@ -53,14 +53,40 @@ func run() error {
 	if flags.Version {
 		outputService := output.NewService(flags.Output)
 		orchestratorService := orchestrator.NewService(
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			outputService, versionInfo,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil, nil,
-			nil,
-			nil,
-			nil,
-			nil,
+			nil, // stsService
+			nil, // vpcService
+			nil, // iamService
+			nil, // s3Service
+			nil, // cloudtrailService
+			nil, // secretsService
+			nil, // securityhubSvc
+			nil, // guarddutyService
+			nil, // apigatewayService
+			nil, // resourcePolSvc
+			outputService,
+			versionInfo,
+			nil, // shieldService
+			nil, // elbService
+			nil, // route53Service
+			nil, // inspectorService
+			nil, // lambdaSecService
+			nil, // messagingService
+			nil, // ecrSecService
+			nil, // eventSecurityService
+			nil, // cacheSecurityService
+			nil, // redshiftSecService
+			nil, // cloudtrailSecService
+			nil, // configService
+			nil, // dataprotectionSvc
+			nil, // loggingService
+			nil, // governanceService
+			nil, // vpcEndpointsService
+			nil, // vpcAdvancedService
+			nil, // iamAdvancedService
+			nil, // ecsSecService
+			nil, // eksSecService
+			nil, // aiDetectionService
+			nil, // storageService
 		)
 		return orchestratorService.Orchestrate(flags)
 	}

@@ -30,6 +30,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/logging"
 	"github.com/thirukguru/aws-perimeter/service/messaging"
 	"github.com/thirukguru/aws-perimeter/service/output"
+	"github.com/thirukguru/aws-perimeter/service/redshiftsecurity"
 	"github.com/thirukguru/aws-perimeter/service/resourcepolicy"
 	"github.com/thirukguru/aws-perimeter/service/route53"
 	"github.com/thirukguru/aws-perimeter/service/s3security"
@@ -71,6 +72,7 @@ func NewService(
 	ecrSecService ecrsecurity.Service,
 	eventSecurityService eventsecurity.Service,
 	cacheSecurityService cachesecurity.Service,
+	redshiftSecService redshiftsecurity.Service,
 	cloudtrailSecService cloudtrailsecurity.Service,
 	configService config.Service,
 	dataprotectionSvc dataprotection.Service,
@@ -109,6 +111,7 @@ func NewService(
 		ecrSecService:        ecrSecService,
 		eventSecurityService: eventSecurityService,
 		cacheSecurityService: cacheSecurityService,
+		redshiftSecService:   redshiftSecService,
 		cloudtrailSecService: cloudtrailSecService,
 		configService:        configService,
 		dataprotectionSvc:    dataprotectionSvc,
@@ -228,6 +231,7 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		ecrSecRisks        []ecrsecurity.ECRRisk
 		eventWorkflowRisks []eventsecurity.EventWorkflowRisk
 		cacheSecRisks      []cachesecurity.CacheSecurityRisk
+		redshiftSecRisks   []redshiftsecurity.RedshiftRisk
 		orgGuardrailRisks  []governance.OrgGuardrailRisk
 		lambdaPolicyRisks  []resourcepolicy.ResourcePolicyRisk
 		sqsPolicyRisks     []resourcepolicy.ResourcePolicyRisk
@@ -489,6 +493,13 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		var err error
 		if s.cacheSecurityService != nil {
 			cacheSecRisks, err = s.cacheSecurityService.GetCacheSecurityRisks(groupCtx)
+		}
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		if s.redshiftSecService != nil {
+			redshiftSecRisks, err = s.redshiftSecService.GetRedshiftSecurityRisks(groupCtx)
 		}
 		return err
 	})
@@ -767,6 +778,7 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		LambdaConfigRisks:      lambdaConfigRisks,
 		EventWorkflowRisks:     eventWorkflowRisks,
 		CacheSecurityRisks:     cacheSecRisks,
+		RedshiftSecurityRisks:  redshiftSecRisks,
 		LambdaPolicyRisks:      lambdaPolicyRisks,
 		SQSPolicyRisks:         sqsPolicyRisks,
 		SNSPolicyRisks:         snsPolicyRisks,
@@ -1344,6 +1356,13 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 			extFindings = append(extFindings, htmloutput.Finding{
 				Severity: cacheRisk.Severity, Title: cacheRisk.Service + ": " + cacheRisk.RiskType,
 				Resource: cacheRisk.Resource, Description: cacheRisk.Description, Recommendation: cacheRisk.Recommendation,
+			})
+		}
+		// Redshift Security
+		for _, redshiftRisk := range redshiftSecRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: redshiftRisk.Severity, Title: "Redshift: " + redshiftRisk.RiskType,
+				Resource: redshiftRisk.Resource, Description: redshiftRisk.Description, Recommendation: redshiftRisk.Recommendation,
 			})
 		}
 		// AI Attack Detection

@@ -207,6 +207,20 @@ func (s *service) persistScanIfEnabled(
 			Recommendation: r.Recommendation,
 		})
 	}
+	for _, r := range advInput.RedshiftSecurityRisks {
+		add(storage.Finding{
+			Hash:           findingHash("Redshift", r.RiskType, r.Resource),
+			Category:       "Redshift",
+			Subcategory:    "Cluster",
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "RedshiftCluster",
+			ResourceID:     r.Resource,
+			Title:          "Redshift Security Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
 	for _, r := range aiRisks {
 		add(storage.Finding{Hash: findingHash("AI", r.RiskType, r.Resource), Category: "AI", Subcategory: "AttackDetection", RiskType: r.RiskType, Severity: r.Severity, ResourceType: "AWSResource", ResourceID: r.Resource, Title: "AI Attack Indicator", Description: r.Description, Recommendation: r.Recommendation})
 	}

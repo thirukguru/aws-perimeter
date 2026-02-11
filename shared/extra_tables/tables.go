@@ -435,6 +435,26 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		t.Render()
 	}
 
+	// Redshift Security
+	if len(input.RedshiftSecurityRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🏭 Redshift Security Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk", "Cluster", "Description"})
+		for _, r := range input.RedshiftSecurityRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.RiskType,
+				truncate(r.Resource, 28),
+				truncate(r.Description, 42),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
 	// Resource-based Policies
 	allPolicyRisks := append(input.LambdaPolicyRisks, input.SQSPolicyRisks...)
 	allPolicyRisks = append(allPolicyRisks, input.SNSPolicyRisks...)
@@ -460,7 +480,7 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		len(input.APINoAuth) + len(input.APINoRateLimits) + len(allPolicyRisks) +
 		len(input.MessagingSecurityRisks) + len(input.ECRSecurityRisks) +
 		len(input.BackupRisks) + len(input.OrgGuardrailRisks) + len(input.LambdaConfigRisks) +
-		len(input.EventWorkflowRisks) + len(input.CacheSecurityRisks)
+		len(input.EventWorkflowRisks) + len(input.CacheSecurityRisks) + len(input.RedshiftSecurityRisks)
 
 	if totalIssues == 0 &&
 		(input.HubStatus == nil || input.HubStatus.IsEnabled) &&

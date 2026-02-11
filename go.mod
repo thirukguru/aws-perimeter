@@ -65,6 +65,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.17 // indirect
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.10 // indirect
+	github.com/aws/aws-sdk-go-v2/service/redshift v1.62.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.40.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.29.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.34.2 // indirect

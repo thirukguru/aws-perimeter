@@ -10,6 +10,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/guardduty"
 	"github.com/thirukguru/aws-perimeter/service/lambdasecurity"
 	"github.com/thirukguru/aws-perimeter/service/messaging"
+	"github.com/thirukguru/aws-perimeter/service/redshiftsecurity"
 	"github.com/thirukguru/aws-perimeter/service/resourcepolicy"
 	"github.com/thirukguru/aws-perimeter/service/securityhub"
 )
@@ -58,6 +59,9 @@ type RenderAdvancedInput struct {
 
 	// ElastiCache / MemoryDB Security
 	CacheSecurityRisks []cachesecurity.CacheSecurityRisk
+
+	// Redshift Security
+	RedshiftSecurityRisks []redshiftsecurity.RedshiftRisk
 }
 
 // AdvancedReportJSON represents the JSON output for advanced security checks
@@ -101,4 +105,7 @@ type AdvancedReportJSON struct {
 
 	// ElastiCache / MemoryDB Security
 	CacheSecurityRisks []cachesecurity.CacheSecurityRisk `json:"cache_security_risks,omitempty"`
+
+	// Redshift Security
+	RedshiftSecurityRisks []redshiftsecurity.RedshiftRisk `json:"redshift_security_risks,omitempty"`
 }
