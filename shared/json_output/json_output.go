@@ -510,6 +510,11 @@ func BuildAdvancedReport(input model.RenderAdvancedInput, generatedAt string) mo
 	output.ResourcePolicyRisks = allPolicyRisks
 	output.MessagingSecurityRisks = input.MessagingSecurityRisks
 	output.ECRSecurityRisks = input.ECRSecurityRisks
+	output.BackupRisks = input.BackupRisks
+	output.OrgGuardrailRisks = input.OrgGuardrailRisks
+	output.LambdaConfigRisks = input.LambdaConfigRisks
+	output.EventWorkflowRisks = input.EventWorkflowRisks
+	output.CacheSecurityRisks = input.CacheSecurityRisks
 
 	return output
 }

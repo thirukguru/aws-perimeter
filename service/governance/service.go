@@ -41,6 +41,15 @@ type SCPRisk struct {
 	Recommendation string
 }
 
+// OrgGuardrailRisk represents organization-wide SCP guardrail gaps.
+type OrgGuardrailRisk struct {
+	RiskType       string
+	Severity       string
+	Resource       string
+	Description    string
+	Recommendation string
+}
+
 // TaggingCompliance represents resource tagging compliance
 type TaggingCompliance struct {
 	TotalResources    int
@@ -70,6 +79,7 @@ type service struct {
 type Service interface {
 	GetOrganizationStatus(ctx context.Context) (*OrganizationStatus, error)
 	GetSCPRisks(ctx context.Context) ([]SCPRisk, error)
+	GetOrgSCPExpansionRisks(ctx context.Context) ([]OrgGuardrailRisk, error)
 	GetTaggingCompliance(ctx context.Context, requiredTags []string) (*TaggingCompliance, error)
 	GetUntaggedResources(ctx context.Context, requiredTags []string) ([]UntaggedResource, error)
 }
@@ -193,6 +203,104 @@ func (s *service) GetSCPRisks(ctx context.Context) ([]SCPRisk, error) {
 	return risks, nil
 }
 
+// GetOrgSCPExpansionRisks checks for core Organizations/SCP guardrail gaps.
+func (s *service) GetOrgSCPExpansionRisks(ctx context.Context) ([]OrgGuardrailRisk, error) {
+	var risks []OrgGuardrailRisk
+
+	policies, err := s.orgClient.ListPolicies(ctx, &organizations.ListPoliciesInput{
+		Filter: orgtypes.PolicyTypeServiceControlPolicy,
+	})
+	if err != nil {
+		// Organizations not enabled or not accessible from this account.
+		return risks, nil
+	}
+
+	hasSCPAttachedToRoot := false
+	hasRootAccessBlock := false
+	hasRegionRestriction := false
+	hasAIServiceRestriction := false
+
+	for _, policy := range policies.Policies {
+		policyID := aws.ToString(policy.Id)
+		if strings.TrimSpace(policyID) == "" {
+			continue
+		}
+
+		detail, err := s.orgClient.DescribePolicy(ctx, &organizations.DescribePolicyInput{
+			PolicyId: policy.Id,
+		})
+		if err != nil || detail.Policy == nil {
+			continue
+		}
+		content := aws.ToString(detail.Policy.Content)
+
+		if containsDenyRegionGuardrail(content) {
+			hasRegionRestriction = true
+		}
+		if containsDenyRootAccess(content) {
+			hasRootAccessBlock = true
+		}
+		if containsDenyService(content, "bedrock:") || containsDenyService(content, "sagemaker:") {
+			hasAIServiceRestriction = true
+		}
+
+		targets, err := s.orgClient.ListTargetsForPolicy(ctx, &organizations.ListTargetsForPolicyInput{
+			PolicyId: policy.Id,
+		})
+		if err != nil {
+			continue
+		}
+		for _, t := range targets.Targets {
+			if t.Type == orgtypes.TargetTypeRoot {
+				hasSCPAttachedToRoot = true
+				break
+			}
+		}
+	}
+
+	if !hasSCPAttachedToRoot {
+		risks = append(risks, OrgGuardrailRisk{
+			RiskType:       "NoSCPProtectionRootAccount",
+			Severity:       SeverityHigh,
+			Resource:       "Organizations Root",
+			Description:    "No SCP is attached at the organization root",
+			Recommendation: "Attach baseline SCP guardrails at root to protect all member accounts",
+		})
+	}
+
+	if !hasRootAccessBlock {
+		risks = append(risks, OrgGuardrailRisk{
+			RiskType:       "MemberAccountRootAccessNotBlocked",
+			Severity:       SeverityHigh,
+			Resource:       "Organizations SCPs",
+			Description:    "No SCP pattern detected to restrict root-user actions in member accounts",
+			Recommendation: "Add SCP deny guardrails for root-user sensitive actions",
+		})
+	}
+
+	if !hasRegionRestriction {
+		risks = append(risks, OrgGuardrailRisk{
+			RiskType:       "NoRegionRestrictionGuardrails",
+			Severity:       SeverityMedium,
+			Resource:       "Organizations SCPs",
+			Description:    "No region restriction condition detected in SCPs",
+			Recommendation: "Add SCP rules using aws:RequestedRegion to limit unauthorized regions",
+		})
+	}
+
+	if !hasAIServiceRestriction {
+		risks = append(risks, OrgGuardrailRisk{
+			RiskType:       "AIServiceUnrestricted",
+			Severity:       SeverityMedium,
+			Resource:       "Organizations SCPs",
+			Description:    "No SCP restrictions detected for Bedrock/SageMaker service usage",
+			Recommendation: "Add SCP guardrails to restrict Bedrock/SageMaker usage to approved accounts/regions",
+		})
+	}
+
+	return risks, nil
+}
+
 // GetTaggingCompliance checks resource tagging compliance
 func (s *service) GetTaggingCompliance(ctx context.Context, requiredTags []string) (*TaggingCompliance, error) {
 	compliance := &TaggingCompliance{}
@@ -304,4 +412,24 @@ func extractResourceType(arn string) string {
 		return parts[2] + ":" + strings.Split(parts[5], "/")[0]
 	}
 	return "unknown"
+}
+
+func containsDenyRegionGuardrail(policyContent string) bool {
+	lower := strings.ToLower(policyContent)
+	return strings.Contains(lower, "\"effect\":\"deny\"") && strings.Contains(lower, "aws:requestedregion")
+}
+
+func containsDenyRootAccess(policyContent string) bool {
+	lower := strings.ToLower(policyContent)
+	if !strings.Contains(lower, "\"effect\":\"deny\"") {
+		return false
+	}
+	return strings.Contains(lower, ":root") ||
+		(strings.Contains(lower, "aws:principalarn") && strings.Contains(lower, "root")) ||
+		(strings.Contains(lower, "aws:principaltype") && strings.Contains(lower, "root"))
+}
+
+func containsDenyService(policyContent, servicePrefix string) bool {
+	lower := strings.ToLower(policyContent)
+	return strings.Contains(lower, "\"effect\":\"deny\"") && strings.Contains(lower, strings.ToLower(servicePrefix))
 }

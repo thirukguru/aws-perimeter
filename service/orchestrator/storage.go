@@ -137,6 +137,76 @@ func (s *service) persistScanIfEnabled(
 			Recommendation: r.Recommendation,
 		})
 	}
+	for _, r := range advInput.BackupRisks {
+		add(storage.Finding{
+			Hash:           findingHash("Backup", r.RiskType, r.Resource),
+			Category:       "Backup",
+			Subcategory:    "DisasterRecovery",
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "AWSResource",
+			ResourceID:     r.Resource,
+			Title:          "Backup & DR Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
+	for _, r := range advInput.OrgGuardrailRisks {
+		add(storage.Finding{
+			Hash:           findingHash("Governance", r.RiskType, r.Resource),
+			Category:       "Governance",
+			Subcategory:    "SCP",
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "Organizations",
+			ResourceID:     r.Resource,
+			Title:          "Organizations Guardrail Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
+	for _, r := range advInput.LambdaConfigRisks {
+		add(storage.Finding{
+			Hash:           findingHash("Lambda", r.RiskType, r.FunctionARN, r.SupportingDetail),
+			Category:       "Lambda",
+			Subcategory:    "Configuration",
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "LambdaFunction",
+			ResourceID:     r.FunctionARN,
+			Title:          "Lambda Configuration Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
+	for _, r := range advInput.EventWorkflowRisks {
+		add(storage.Finding{
+			Hash:           findingHash("EventWorkflow", r.Service, r.RiskType, r.Resource),
+			Category:       "EventWorkflow",
+			Subcategory:    r.Service,
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "AWSResource",
+			ResourceID:     r.Resource,
+			Title:          "EventBridge/Step Functions Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
+	for _, r := range advInput.CacheSecurityRisks {
+		add(storage.Finding{
+			Hash:           findingHash("CacheSecurity", r.Service, r.RiskType, r.Resource),
+			Category:       "CacheSecurity",
+			Subcategory:    r.Service,
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "AWSResource",
+			ResourceID:     r.Resource,
+			Title:          "ElastiCache/MemoryDB Security Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
 	for _, r := range aiRisks {
 		add(storage.Finding{Hash: findingHash("AI", r.RiskType, r.Resource), Category: "AI", Subcategory: "AttackDetection", RiskType: r.RiskType, Severity: r.Severity, ResourceType: "AWSResource", ResourceID: r.Resource, Title: "AI Attack Indicator", Description: r.Description, Recommendation: r.Recommendation})
 	}

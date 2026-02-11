@@ -2,8 +2,13 @@ package model
 
 import (
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
+	"github.com/thirukguru/aws-perimeter/service/cachesecurity"
+	"github.com/thirukguru/aws-perimeter/service/dataprotection"
 	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
+	"github.com/thirukguru/aws-perimeter/service/eventsecurity"
+	"github.com/thirukguru/aws-perimeter/service/governance"
 	"github.com/thirukguru/aws-perimeter/service/guardduty"
+	"github.com/thirukguru/aws-perimeter/service/lambdasecurity"
 	"github.com/thirukguru/aws-perimeter/service/messaging"
 	"github.com/thirukguru/aws-perimeter/service/resourcepolicy"
 	"github.com/thirukguru/aws-perimeter/service/securityhub"
@@ -38,6 +43,21 @@ type RenderAdvancedInput struct {
 
 	// ECR Security
 	ECRSecurityRisks []ecrsecurity.ECRRisk
+
+	// Backup & Disaster Recovery
+	BackupRisks []dataprotection.BackupRisk
+
+	// Organizations & SCP Expansion
+	OrgGuardrailRisks []governance.OrgGuardrailRisk
+
+	// Lambda Security Expansion
+	LambdaConfigRisks []lambdasecurity.LambdaConfigRisk
+
+	// EventBridge/Step Functions
+	EventWorkflowRisks []eventsecurity.EventWorkflowRisk
+
+	// ElastiCache / MemoryDB Security
+	CacheSecurityRisks []cachesecurity.CacheSecurityRisk
 }
 
 // AdvancedReportJSON represents the JSON output for advanced security checks
@@ -66,4 +86,19 @@ type AdvancedReportJSON struct {
 
 	// ECR Security
 	ECRSecurityRisks []ecrsecurity.ECRRisk `json:"ecr_security_risks,omitempty"`
+
+	// Backup & Disaster Recovery
+	BackupRisks []dataprotection.BackupRisk `json:"backup_risks,omitempty"`
+
+	// Organizations & SCP Expansion
+	OrgGuardrailRisks []governance.OrgGuardrailRisk `json:"org_guardrail_risks,omitempty"`
+
+	// Lambda Security Expansion
+	LambdaConfigRisks []lambdasecurity.LambdaConfigRisk `json:"lambda_config_risks,omitempty"`
+
+	// EventBridge/Step Functions
+	EventWorkflowRisks []eventsecurity.EventWorkflowRisk `json:"event_workflow_risks,omitempty"`
+
+	// ElastiCache / MemoryDB Security
+	CacheSecurityRisks []cachesecurity.CacheSecurityRisk `json:"cache_security_risks,omitempty"`
 }

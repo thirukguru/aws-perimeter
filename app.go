@@ -59,6 +59,8 @@ func run() error {
 			nil, nil,
 			nil,
 			nil,
+			nil,
+			nil,
 		)
 		return orchestratorService.Orchestrate(flags)
 	}

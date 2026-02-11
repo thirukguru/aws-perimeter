@@ -24,6 +24,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/aidetection"
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
 	awsconfig "github.com/thirukguru/aws-perimeter/service/aws_config"
+	"github.com/thirukguru/aws-perimeter/service/cachesecurity"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
@@ -32,6 +33,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
 	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
+	"github.com/thirukguru/aws-perimeter/service/eventsecurity"
 	"github.com/thirukguru/aws-perimeter/service/governance"
 	"github.com/thirukguru/aws-perimeter/service/guardduty"
 	"github.com/thirukguru/aws-perimeter/service/iam"
@@ -166,6 +168,8 @@ func buildOrchestratorService(
 	lambdaSecService := lambdasecurity.NewService(awsCfg)
 	messagingService := messaging.NewService(awsCfg)
 	ecrSecService := ecrsecurity.NewService(awsCfg)
+	eventSecurityService := eventsecurity.NewService(awsCfg)
+	cacheSecurityService := cachesecurity.NewService(awsCfg)
 	cloudtrailSecService := cloudtrailsecurity.NewService(awsCfg)
 	configService := config.NewService(awsCfg)
 	dataprotectionSvc := dataprotection.NewService(awsCfg)
@@ -198,6 +202,8 @@ func buildOrchestratorService(
 		lambdaSecService,
 		messagingService,
 		ecrSecService,
+		eventSecurityService,
+		cacheSecurityService,
 		cloudtrailSecService,
 		configService,
 		dataprotectionSvc,

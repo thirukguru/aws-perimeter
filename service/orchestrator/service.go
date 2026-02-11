@@ -11,6 +11,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/model"
 	"github.com/thirukguru/aws-perimeter/service/aidetection"
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
+	"github.com/thirukguru/aws-perimeter/service/cachesecurity"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
 	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
+	"github.com/thirukguru/aws-perimeter/service/eventsecurity"
 	"github.com/thirukguru/aws-perimeter/service/governance"
 	"github.com/thirukguru/aws-perimeter/service/guardduty"
 	"github.com/thirukguru/aws-perimeter/service/iam"
@@ -67,6 +69,8 @@ func NewService(
 	lambdaSecService lambdasecurity.Service,
 	messagingService messaging.Service,
 	ecrSecService ecrsecurity.Service,
+	eventSecurityService eventsecurity.Service,
+	cacheSecurityService cachesecurity.Service,
 	cloudtrailSecService cloudtrailsecurity.Service,
 	configService config.Service,
 	dataprotectionSvc dataprotection.Service,
@@ -103,6 +107,8 @@ func NewService(
 		lambdaSecService:     lambdaSecService,
 		messagingService:     messagingService,
 		ecrSecService:        ecrSecService,
+		eventSecurityService: eventSecurityService,
+		cacheSecurityService: cacheSecurityService,
 		cloudtrailSecService: cloudtrailSecService,
 		configService:        configService,
 		dataprotectionSvc:    dataprotectionSvc,
@@ -210,19 +216,22 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 
 	// New Services Results
 	var (
-		hubStatus         *securityhub.HubStatus
-		hubStandards      []securityhub.StandardStatus
-		hubFindings       []securityhub.CriticalFinding
-		gdStatus          *guardduty.DetectorStatus
-		gdFindings        []guardduty.ThreatFinding
-		apiNoRateLimits   []apigateway.RateLimitStatus
-		apiNoAuth         []apigateway.AuthorizationStatus
-		apiRisks          []apigateway.APIRisk
-		messagingSecRisks []messaging.MessagingSecurityRisk
-		ecrSecRisks       []ecrsecurity.ECRRisk
-		lambdaPolicyRisks []resourcepolicy.ResourcePolicyRisk
-		sqsPolicyRisks    []resourcepolicy.ResourcePolicyRisk
-		snsPolicyRisks    []resourcepolicy.ResourcePolicyRisk
+		hubStatus          *securityhub.HubStatus
+		hubStandards       []securityhub.StandardStatus
+		hubFindings        []securityhub.CriticalFinding
+		gdStatus           *guardduty.DetectorStatus
+		gdFindings         []guardduty.ThreatFinding
+		apiNoRateLimits    []apigateway.RateLimitStatus
+		apiNoAuth          []apigateway.AuthorizationStatus
+		apiRisks           []apigateway.APIRisk
+		messagingSecRisks  []messaging.MessagingSecurityRisk
+		ecrSecRisks        []ecrsecurity.ECRRisk
+		eventWorkflowRisks []eventsecurity.EventWorkflowRisk
+		cacheSecRisks      []cachesecurity.CacheSecurityRisk
+		orgGuardrailRisks  []governance.OrgGuardrailRisk
+		lambdaPolicyRisks  []resourcepolicy.ResourcePolicyRisk
+		sqsPolicyRisks     []resourcepolicy.ResourcePolicyRisk
+		snsPolicyRisks     []resourcepolicy.ResourcePolicyRisk
 	)
 
 	// Extended Security Services Results
@@ -232,8 +241,9 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		albRisks      []elb.ALBSecurityRisk
 		listenerRisks []elb.ListenerSecurityRisk
 		// Lambda Security
-		lambdaRoles    []lambdasecurity.OverlyPermissiveRole
-		lambdaCrossReg []lambdasecurity.CrossRegionExecution
+		lambdaRoles       []lambdasecurity.OverlyPermissiveRole
+		lambdaCrossReg    []lambdasecurity.CrossRegionExecution
+		lambdaConfigRisks []lambdasecurity.LambdaConfigRisk
 		// CloudTrail Security
 		roleCreations []cloudtrailsecurity.IAMRoleCreationEvent
 		rootUsage     []cloudtrailsecurity.RootAccountUsage
@@ -246,6 +256,7 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		dynamoRisks  []dataprotection.DynamoDBRisk
 		secretRisks  []dataprotection.SecretRotationRisk
 		backupStatus *dataprotection.BackupStatus
+		backupRisks  []dataprotection.BackupRisk
 		// VPC Endpoints
 		endpointStatus   *vpcendpoints.EndpointStatus
 		endpointRisks    []vpcendpoints.EndpointRisk
@@ -467,6 +478,27 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		}
 		return err
 	})
+	g.Go(func() error {
+		var err error
+		if s.eventSecurityService != nil {
+			eventWorkflowRisks, err = s.eventSecurityService.GetEventWorkflowRisks(groupCtx)
+		}
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		if s.cacheSecurityService != nil {
+			cacheSecRisks, err = s.cacheSecurityService.GetCacheSecurityRisks(groupCtx)
+		}
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		if s.governanceService != nil {
+			orgGuardrailRisks, err = s.governanceService.GetOrgSCPExpansionRisks(groupCtx)
+		}
+		return err
+	})
 
 	// Resource-based Policies
 	g.Go(func() error {
@@ -512,6 +544,11 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 	g.Go(func() error {
 		var err error
 		lambdaCrossReg, err = s.lambdaSecService.GetCrossRegionExecution(groupCtx)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		lambdaConfigRisks, err = s.lambdaSecService.GetLambdaConfigRisks(groupCtx)
 		return err
 	})
 
@@ -563,6 +600,11 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 	g.Go(func() error {
 		var err error
 		backupStatus, err = s.dataprotectionSvc.GetBackupStatus(groupCtx)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		backupRisks, err = s.dataprotectionSvc.GetBackupRisks(groupCtx)
 		return err
 	})
 
@@ -720,39 +762,45 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		APIRisks:               apiRisks,
 		MessagingSecurityRisks: messagingSecRisks,
 		ECRSecurityRisks:       ecrSecRisks,
+		BackupRisks:            backupRisks,
+		OrgGuardrailRisks:      orgGuardrailRisks,
+		LambdaConfigRisks:      lambdaConfigRisks,
+		EventWorkflowRisks:     eventWorkflowRisks,
+		CacheSecurityRisks:     cacheSecRisks,
 		LambdaPolicyRisks:      lambdaPolicyRisks,
 		SQSPolicyRisks:         sqsPolicyRisks,
 		SNSPolicyRisks:         snsPolicyRisks,
 	}
 	extInput := extratables.ExtendedSecurityInput{
-		AccountID:        *stsResult.Account,
-		Region:           flags.Region,
-		ShieldStatus:     shieldStatus,
-		ALBRisks:         albRisks,
-		ListenerRisks:    listenerRisks,
-		LambdaRoles:      lambdaRoles,
-		LambdaCrossReg:   lambdaCrossReg,
-		RoleCreations:    roleCreations,
-		RootUsage:        rootUsage,
-		ConfigStatus:     configStatus,
-		EBSEncryption:    ebsEncryption,
-		KMSRotation:      kmsRotation,
-		RDSRisks:         rdsRisks,
-		DynamoRisks:      dynamoRisks,
-		SecretRisks:      secretRisks,
-		BackupStatus:     backupStatus,
-		EndpointStatus:   endpointStatus,
-		EndpointRisks:    endpointRisks,
-		NATStatus:        natStatus,
-		MissingEndpoints: missingEndpoints,
-		PeeringRisks:     peeringRisks,
-		BastionHosts:     bastionHosts,
-		SubnetClass:      subnetClass,
-		RoleChainRisks:   roleChainRisks,
-		ExternalIDRisks:  externalIDRisks,
-		BoundaryRisks:    boundaryRisks,
-		InstanceProfiles: instanceProfiles,
-		AIRisks:          aiRisks,
+		AccountID:         *stsResult.Account,
+		Region:            flags.Region,
+		ShieldStatus:      shieldStatus,
+		ALBRisks:          albRisks,
+		ListenerRisks:     listenerRisks,
+		LambdaRoles:       lambdaRoles,
+		LambdaCrossReg:    lambdaCrossReg,
+		LambdaConfigRisks: lambdaConfigRisks,
+		RoleCreations:     roleCreations,
+		RootUsage:         rootUsage,
+		ConfigStatus:      configStatus,
+		EBSEncryption:     ebsEncryption,
+		KMSRotation:       kmsRotation,
+		RDSRisks:          rdsRisks,
+		DynamoRisks:       dynamoRisks,
+		SecretRisks:       secretRisks,
+		BackupStatus:      backupStatus,
+		EndpointStatus:    endpointStatus,
+		EndpointRisks:     endpointRisks,
+		NATStatus:         natStatus,
+		MissingEndpoints:  missingEndpoints,
+		PeeringRisks:      peeringRisks,
+		BastionHosts:      bastionHosts,
+		SubnetClass:       subnetClass,
+		RoleChainRisks:    roleChainRisks,
+		ExternalIDRisks:   externalIDRisks,
+		BoundaryRisks:     boundaryRisks,
+		InstanceProfiles:  instanceProfiles,
+		AIRisks:           aiRisks,
 	}
 
 	if flags.Output == "table" {
@@ -1189,6 +1237,12 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 				Resource: crossReg.FunctionName, Description: crossReg.Description,
 			})
 		}
+		for _, risk := range lambdaConfigRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: risk.Severity, Title: risk.RiskType,
+				Resource: risk.FunctionName, Description: risk.Description,
+			})
+		}
 		for _, roleCreate := range roleCreations {
 			extFindings = append(extFindings, htmloutput.Finding{
 				Severity: roleCreate.Severity, Title: "Suspicious IAM Role Creation",
@@ -1262,6 +1316,34 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 			extFindings = append(extFindings, htmloutput.Finding{
 				Severity: ecrRisk.Severity, Title: "ECR: " + ecrRisk.RiskType,
 				Resource: resource, Description: ecrRisk.Description, Recommendation: ecrRisk.Recommendation,
+			})
+		}
+		// Backup & Disaster Recovery
+		for _, backupRisk := range backupRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: backupRisk.Severity, Title: "Backup: " + backupRisk.RiskType,
+				Resource: backupRisk.Resource, Description: backupRisk.Description, Recommendation: backupRisk.Recommendation,
+			})
+		}
+		// Organizations & SCP Expansion
+		for _, orgRisk := range orgGuardrailRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: orgRisk.Severity, Title: "Governance: " + orgRisk.RiskType,
+				Resource: orgRisk.Resource, Description: orgRisk.Description, Recommendation: orgRisk.Recommendation,
+			})
+		}
+		// EventBridge / Step Functions
+		for _, ewRisk := range eventWorkflowRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: ewRisk.Severity, Title: ewRisk.Service + ": " + ewRisk.RiskType,
+				Resource: ewRisk.Resource, Description: ewRisk.Description, Recommendation: ewRisk.Recommendation,
+			})
+		}
+		// ElastiCache / MemoryDB Security
+		for _, cacheRisk := range cacheSecRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: cacheRisk.Severity, Title: cacheRisk.Service + ": " + cacheRisk.RiskType,
+				Resource: cacheRisk.Resource, Description: cacheRisk.Description, Recommendation: cacheRisk.Recommendation,
 			})
 		}
 		// AI Attack Detection

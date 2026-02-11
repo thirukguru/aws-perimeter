@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 )
 
 const (
@@ -44,9 +48,21 @@ type CrossRegionExecution struct {
 	Recommendation string
 }
 
+// LambdaConfigRisk represents Lambda runtime/configuration security risks.
+type LambdaConfigRisk struct {
+	RiskType         string
+	FunctionName     string
+	FunctionARN      string
+	Severity         string
+	Description      string
+	Recommendation   string
+	SupportingDetail string
+}
+
 type service struct {
 	lambdaClient *lambda.Client
 	iamClient    *iam.Client
+	ec2Client    *ec2.Client
 	region       string
 }
 
@@ -54,6 +70,7 @@ type service struct {
 type Service interface {
 	GetOverlyPermissiveRoles(ctx context.Context) ([]OverlyPermissiveRole, error)
 	GetCrossRegionExecution(ctx context.Context) ([]CrossRegionExecution, error)
+	GetLambdaConfigRisks(ctx context.Context) ([]LambdaConfigRisk, error)
 }
 
 // NewService creates a new Lambda security service
@@ -61,6 +78,7 @@ func NewService(cfg aws.Config) Service {
 	return &service{
 		lambdaClient: lambda.NewFromConfig(cfg),
 		iamClient:    iam.NewFromConfig(cfg),
+		ec2Client:    ec2.NewFromConfig(cfg),
 		region:       cfg.Region,
 	}
 }
@@ -81,6 +99,14 @@ var dangerousLambdaActions = map[string]string{
 	"kms:Decrypt":               "Can decrypt data",
 	"ses:SendEmail":             "Can send emails (phishing risk)",
 	"sns:Publish":               "Can publish to SNS (abuse risk)",
+}
+
+var defaultLayerAllowlist = []string{
+	"arn:aws:lambda:us-east-1:580247275435:layer:LambdaInsightsExtension",
+	"arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsPython",
+	"arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsTypeScript",
+	"arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsJava",
+	"arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsDotnet",
 }
 
 // GetOverlyPermissiveRoles finds Lambda functions with dangerous IAM permissions
@@ -163,6 +189,97 @@ func (s *service) GetCrossRegionExecution(ctx context.Context) ([]CrossRegionExe
 					Description:    "Lambda has cross-region resource access - potential data exfiltration vector",
 					Recommendation: "Review if cross-region access is necessary, restrict to specific regions",
 				})
+			}
+		}
+	}
+
+	return risks, nil
+}
+
+// GetLambdaConfigRisks evaluates Lambda configuration posture risks.
+func (s *service) GetLambdaConfigRisks(ctx context.Context) ([]LambdaConfigRisk, error) {
+	var risks []LambdaConfigRisk
+
+	natSubnets, subnetsWithEndpoints, err := s.getVPCConnectivityState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	paginator := lambda.NewListFunctionsPaginator(s.lambdaClient, &lambda.ListFunctionsInput{})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list Lambda functions: %w", err)
+		}
+		for _, fn := range page.Functions {
+			functionName := aws.ToString(fn.FunctionName)
+			functionARN := aws.ToString(fn.FunctionArn)
+
+			if hasRiskyVPCConfig(fn, natSubnets, subnetsWithEndpoints) {
+				risks = append(risks, LambdaConfigRisk{
+					RiskType:       "VPCNoNATOrVPCEndpoints",
+					FunctionName:   functionName,
+					FunctionARN:    functionARN,
+					Severity:       SeverityHigh,
+					Description:    "Function runs in a VPC without NAT or VPC endpoint egress coverage",
+					Recommendation: "Add NAT Gateway/Instance or required Interface/Gateway VPC Endpoints for AWS service access",
+				})
+			}
+
+			disabled, err := s.hasReservedConcurrencyZero(ctx, functionName)
+			if err != nil {
+				return nil, err
+			}
+			if disabled {
+				risks = append(risks, LambdaConfigRisk{
+					RiskType:       "ReservedConcurrencyZero",
+					FunctionName:   functionName,
+					FunctionARN:    functionARN,
+					Severity:       SeverityMedium,
+					Description:    "Reserved concurrency is set to 0, effectively disabling function invocations",
+					Recommendation: "Set reserved concurrency above 0 or remove hard limit if not required",
+				})
+			}
+
+			for _, layerArn := range untrustedLayerARNs(fn.Layers) {
+				risks = append(risks, LambdaConfigRisk{
+					RiskType:         "UntrustedLambdaLayer",
+					FunctionName:     functionName,
+					FunctionARN:      functionARN,
+					Severity:         SeverityHigh,
+					Description:      "Function uses a Lambda layer outside trusted account/vendor allowlist",
+					Recommendation:   "Pin to vetted internal or approved vendor layers and review layer publisher trust",
+					SupportingDetail: layerArn,
+				})
+			}
+
+			if hasSnapStartWithSecretLikeEnv(fn.SnapStart, fn.Environment) {
+				risks = append(risks, LambdaConfigRisk{
+					RiskType:       "SnapStartWithPotentialSecrets",
+					FunctionName:   functionName,
+					FunctionARN:    functionARN,
+					Severity:       SeverityMedium,
+					Description:    "SnapStart is enabled while secret-like environment keys are present",
+					Recommendation: "Avoid plaintext secret env vars with SnapStart; use Secrets Manager/Parameter Store retrieval at runtime",
+				})
+			}
+
+			urlConfigs, err := s.listFunctionURLConfigs(ctx, functionName)
+			if err != nil {
+				return nil, err
+			}
+			for _, urlCfg := range urlConfigs {
+				if isUnauthenticatedFunctionURL(urlCfg.AuthType) {
+					risks = append(risks, LambdaConfigRisk{
+						RiskType:         "FunctionURLWithoutAuth",
+						FunctionName:     functionName,
+						FunctionARN:      functionARN,
+						Severity:         SeverityHigh,
+						Description:      "Lambda Function URL allows unauthenticated public access",
+						Recommendation:   "Require AWS_IAM auth and place the endpoint behind API Gateway/WAF where possible",
+						SupportingDetail: aws.ToString(urlCfg.FunctionUrl),
+					})
+				}
 			}
 		}
 	}
@@ -374,4 +491,184 @@ func uniqueStrings(slice []string) []string {
 		}
 	}
 	return result
+}
+
+func (s *service) listFunctionURLConfigs(ctx context.Context, functionName string) ([]lambdatypes.FunctionUrlConfig, error) {
+	out, err := s.lambdaClient.ListFunctionUrlConfigs(ctx, &lambda.ListFunctionUrlConfigsInput{
+		FunctionName: aws.String(functionName),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list function URL configs for %s: %w", functionName, err)
+	}
+	return out.FunctionUrlConfigs, nil
+}
+
+func (s *service) getVPCConnectivityState(ctx context.Context) (map[string]bool, map[string]bool, error) {
+	subnetToRouteTable := map[string]string{}
+	natSubnets := map[string]bool{}
+	subnetsWithEndpoints := map[string]bool{}
+
+	rtPaginator := ec2.NewDescribeRouteTablesPaginator(s.ec2Client, &ec2.DescribeRouteTablesInput{})
+	for rtPaginator.HasMorePages() {
+		page, err := rtPaginator.NextPage(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to describe route tables: %w", err)
+		}
+
+		for _, rt := range page.RouteTables {
+			routeTableID := aws.ToString(rt.RouteTableId)
+			hasNATRoute := routeTableHasNATRoute(rt.Routes)
+			for _, assoc := range rt.Associations {
+				if assoc.SubnetId == nil {
+					continue
+				}
+				subnetID := aws.ToString(assoc.SubnetId)
+				subnetToRouteTable[subnetID] = routeTableID
+				if hasNATRoute {
+					natSubnets[subnetID] = true
+				}
+			}
+		}
+	}
+
+	epPaginator := ec2.NewDescribeVpcEndpointsPaginator(s.ec2Client, &ec2.DescribeVpcEndpointsInput{})
+	for epPaginator.HasMorePages() {
+		page, err := epPaginator.NextPage(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to describe VPC endpoints: %w", err)
+		}
+		for _, ep := range page.VpcEndpoints {
+			for _, subnetID := range ep.SubnetIds {
+				subnetsWithEndpoints[subnetID] = true
+			}
+			for _, routeTableID := range ep.RouteTableIds {
+				for subnetID, rtID := range subnetToRouteTable {
+					if rtID == routeTableID {
+						subnetsWithEndpoints[subnetID] = true
+					}
+				}
+			}
+		}
+	}
+
+	return natSubnets, subnetsWithEndpoints, nil
+}
+
+func routeTableHasNATRoute(routes []ec2types.Route) bool {
+	for _, r := range routes {
+		if r.NatGatewayId != nil || r.InstanceId != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRiskyVPCConfig(fn lambdatypes.FunctionConfiguration, natSubnets, subnetsWithEndpoints map[string]bool) bool {
+	if fn.VpcConfig == nil || len(fn.VpcConfig.SubnetIds) == 0 {
+		return false
+	}
+	for _, subnetID := range fn.VpcConfig.SubnetIds {
+		if natSubnets[subnetID] || subnetsWithEndpoints[subnetID] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *service) hasReservedConcurrencyZero(ctx context.Context, functionName string) (bool, error) {
+	out, err := s.lambdaClient.GetFunctionConcurrency(ctx, &lambda.GetFunctionConcurrencyInput{
+		FunctionName: aws.String(functionName),
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to get function concurrency for %s: %w", functionName, err)
+	}
+	return reservedConcurrencyIsZero(out.ReservedConcurrentExecutions), nil
+}
+
+func reservedConcurrencyIsZero(v *int32) bool {
+	return v != nil && aws.ToInt32(v) == 0
+}
+
+func isUnauthenticatedFunctionURL(authType lambdatypes.FunctionUrlAuthType) bool {
+	return strings.EqualFold(string(authType), "NONE")
+}
+
+func hasSnapStartWithSecretLikeEnv(snapStart *lambdatypes.SnapStartResponse, env *lambdatypes.EnvironmentResponse) bool {
+	if snapStart == nil || snapStart.ApplyOn != lambdatypes.SnapStartApplyOnPublishedVersions {
+		return false
+	}
+	if env == nil || env.Variables == nil {
+		return false
+	}
+	for k := range env.Variables {
+		if looksLikeSecretKeyName(k) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeSecretKeyName(name string) bool {
+	n := strings.ToLower(name)
+	indicators := []string{
+		"secret",
+		"token",
+		"apikey",
+		"api_key",
+		"password",
+		"passwd",
+		"private_key",
+		"access_key",
+		"auth",
+	}
+	for _, token := range indicators {
+		if strings.Contains(n, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func untrustedLayerARNs(layers []lambdatypes.Layer) []string {
+	if len(layers) == 0 {
+		return nil
+	}
+
+	var out []string
+	for _, l := range layers {
+		layerArn := aws.ToString(l.Arn)
+		if layerArn == "" {
+			continue
+		}
+		if hasTrustedLayerPrefix(layerArn) {
+			continue
+		}
+		if isAWSManagedLayer(layerArn) {
+			continue
+		}
+		out = append(out, layerArn)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func hasTrustedLayerPrefix(layerArn string) bool {
+	for _, trustedPrefix := range defaultLayerAllowlist {
+		if strings.HasPrefix(layerArn, trustedPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAWSManagedLayer(layerArn string) bool {
+	parts := strings.Split(layerArn, ":")
+	if len(parts) < 5 {
+		return false
+	}
+	// Account 580247275435 is AWS-managed Lambda Insights publisher.
+	if parts[4] == "580247275435" {
+		return true
+	}
+	return false
 }

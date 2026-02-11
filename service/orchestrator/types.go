@@ -4,6 +4,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/model"
 	"github.com/thirukguru/aws-perimeter/service/aidetection"
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
+	"github.com/thirukguru/aws-perimeter/service/cachesecurity"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
@@ -12,6 +13,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
 	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
+	"github.com/thirukguru/aws-perimeter/service/eventsecurity"
 	"github.com/thirukguru/aws-perimeter/service/governance"
 	"github.com/thirukguru/aws-perimeter/service/guardduty"
 	"github.com/thirukguru/aws-perimeter/service/iam"
@@ -56,6 +58,8 @@ type service struct {
 	lambdaSecService     lambdasecurity.Service
 	messagingService     messaging.Service
 	ecrSecService        ecrsecurity.Service
+	eventSecurityService eventsecurity.Service
+	cacheSecurityService cachesecurity.Service
 	cloudtrailSecService cloudtrailsecurity.Service
 	configService        config.Service
 	dataprotectionSvc    dataprotection.Service

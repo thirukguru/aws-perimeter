@@ -87,11 +87,11 @@
 5. Lambda Security Expansion (5 checks)
 
 ### Lambda Security Expansion (5 checks)
-- [ ] VPC Lambda without NAT or VPC endpoints
-- [ ] Lambda layer risks (public/untrusted layers)
-- [ ] Reserved concurrency set to 0
-- [ ] Lambda SnapStart with secrets exposure risk
-- [ ] Function URL without auth
+- [x] VPC Lambda without NAT or VPC endpoints
+- [x] Lambda layer risks (public/untrusted layers)
+- [x] Reserved concurrency set to 0
+- [x] Lambda SnapStart with secrets exposure risk
+- [x] Function URL without auth
 
 ### SNS/SQS Security (5 checks)
 - [x] Public SNS topics (`Principal: "*"`)
@@ -101,9 +101,9 @@
 - [x] Missing dead-letter queue
 
 ### EventBridge/Step Functions Security (3 checks)
-- [ ] Open EventBridge bus policy
-- [ ] Step Functions logging disabled
-- [ ] State machine public exposure risk
+- [x] Open EventBridge bus policy
+- [x] Step Functions logging disabled
+- [x] State machine public exposure risk
 
 ### ECR Security (5 checks)
 - [x] Mutable image tags enabled
@@ -113,11 +113,11 @@
 - [x] No image lifecycle policy
 
 ### ElastiCache/MemoryDB Security (5 checks)
-- [ ] No encryption at rest
-- [ ] No encryption in transit
-- [ ] Publicly accessible cache placement
-- [ ] Redis auth token not enabled
-- [ ] Default ports used without hardening
+- [x] No encryption at rest
+- [x] No encryption in transit
+- [x] Publicly accessible cache placement
+- [x] Redis auth token not enabled
+- [x] Default ports used without hardening
 
 ### Redshift Security (5 checks)
 - [ ] Publicly accessible cluster
@@ -134,17 +134,17 @@
 - [ ] Overly permissive CORS
 
 ### Backup & Disaster Recovery (5 checks)
-- [ ] No AWS Backup plan
-- [ ] Backup vault unencrypted
-- [ ] No cross-region backup
-- [ ] Critical resources missing from backup plan
-- [ ] Backup retention less than 30 days
+- [x] No AWS Backup plan
+- [x] Backup vault unencrypted
+- [x] No cross-region backup
+- [x] Critical resources missing from backup plan
+- [x] Backup retention less than 30 days
 
 ### Organizations & SCP Expansion (4 checks)
-- [ ] No SCP protection for root account
-- [ ] Member account root access not blocked by SCP
-- [ ] No region restriction guardrails
-- [ ] AI services unrestricted (Bedrock/SageMaker)
+- [x] No SCP protection for root account
+- [x] Member account root access not blocked by SCP
+- [x] No region restriction guardrails
+- [x] AI services unrestricted (Bedrock/SageMaker)
 
 ### Network Firewall & Route 53 Security (4 checks)
 - [ ] No AWS Network Firewall in high-security VPCs

@@ -331,6 +331,110 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		t.Render()
 	}
 
+	// Backup & Disaster Recovery
+	if len(input.BackupRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("💾 Backup & Disaster Recovery Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk", "Resource", "Description"})
+		for _, r := range input.BackupRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.RiskType,
+				truncate(r.Resource, 22),
+				truncate(r.Description, 42),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	// Organizations & SCP Expansion
+	if len(input.OrgGuardrailRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🏛️ Organizations & SCP Guardrail Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk", "Resource", "Description"})
+		for _, r := range input.OrgGuardrailRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.RiskType,
+				truncate(r.Resource, 24),
+				truncate(r.Description, 46),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	// Lambda Security Expansion
+	if len(input.LambdaConfigRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("λ Lambda Configuration Security Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk", "Function", "Detail"})
+		for _, r := range input.LambdaConfigRisks {
+			detail := r.SupportingDetail
+			if detail == "" {
+				detail = r.Description
+			}
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.RiskType,
+				truncate(r.FunctionName, 24),
+				truncate(detail, 44),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	// EventBridge / Step Functions Security
+	if len(input.EventWorkflowRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🧭 EventBridge / Step Functions Security Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Service", "Risk", "Resource"})
+		for _, r := range input.EventWorkflowRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.Service,
+				r.RiskType,
+				truncate(r.Resource, 34),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	// ElastiCache / MemoryDB Security
+	if len(input.CacheSecurityRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🧠 ElastiCache / MemoryDB Security Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Service", "Risk", "Resource"})
+		for _, r := range input.CacheSecurityRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.Service,
+				r.RiskType,
+				truncate(r.Resource, 34),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
 	// Resource-based Policies
 	allPolicyRisks := append(input.LambdaPolicyRisks, input.SQSPolicyRisks...)
 	allPolicyRisks = append(allPolicyRisks, input.SNSPolicyRisks...)
@@ -354,7 +458,9 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 	// Summary
 	totalIssues := len(input.HubFindings) + len(input.GuardDutyFindings) +
 		len(input.APINoAuth) + len(input.APINoRateLimits) + len(allPolicyRisks) +
-		len(input.MessagingSecurityRisks) + len(input.ECRSecurityRisks)
+		len(input.MessagingSecurityRisks) + len(input.ECRSecurityRisks) +
+		len(input.BackupRisks) + len(input.OrgGuardrailRisks) + len(input.LambdaConfigRisks) +
+		len(input.EventWorkflowRisks) + len(input.CacheSecurityRisks)
 
 	if totalIssues == 0 &&
 		(input.HubStatus == nil || input.HubStatus.IsEnabled) &&

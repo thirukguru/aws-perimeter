@@ -3,6 +3,7 @@ package dataprotection
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,11 +65,21 @@ type BackupStatus struct {
 	Recommendation     string
 }
 
+// BackupRisk represents AWS Backup security risks.
+type BackupRisk struct {
+	RiskType       string
+	Severity       string
+	Resource       string
+	Description    string
+	Recommendation string
+}
+
 type service struct {
 	rdsClient     *rds.Client
 	dynamoClient  *dynamodb.Client
 	secretsClient *secretsmanager.Client
 	backupClient  *backup.Client
+	region        string
 }
 
 // Service is the interface for data protection security analysis
@@ -77,6 +88,7 @@ type Service interface {
 	GetDynamoDBRisks(ctx context.Context) ([]DynamoDBRisk, error)
 	GetSecretRotationRisks(ctx context.Context) ([]SecretRotationRisk, error)
 	GetBackupStatus(ctx context.Context) (*BackupStatus, error)
+	GetBackupRisks(ctx context.Context) ([]BackupRisk, error)
 }
 
 // NewService creates a new data protection service
@@ -86,6 +98,7 @@ func NewService(cfg aws.Config) Service {
 		dynamoClient:  dynamodb.NewFromConfig(cfg),
 		secretsClient: secretsmanager.NewFromConfig(cfg),
 		backupClient:  backup.NewFromConfig(cfg),
+		region:        cfg.Region,
 	}
 }
 
@@ -293,6 +306,131 @@ func (s *service) GetBackupStatus(ctx context.Context) (*BackupStatus, error) {
 	}
 
 	return status, nil
+}
+
+// GetBackupRisks evaluates Backup & DR misconfiguration risks.
+func (s *service) GetBackupRisks(ctx context.Context) ([]BackupRisk, error) {
+	var risks []BackupRisk
+
+	vaultsOut, vaultErr := s.backupClient.ListBackupVaults(ctx, &backup.ListBackupVaultsInput{})
+	plansOut, plansErr := s.backupClient.ListBackupPlans(ctx, &backup.ListBackupPlansInput{})
+	protectedOut, protectedErr := s.backupClient.ListProtectedResources(ctx, &backup.ListProtectedResourcesInput{})
+
+	if plansErr == nil && len(plansOut.BackupPlansList) == 0 {
+		risks = append(risks, BackupRisk{
+			RiskType:       "NoAWSBackupPlan",
+			Severity:       SeverityHigh,
+			Resource:       "AWS Backup",
+			Description:    "No AWS Backup plans are configured",
+			Recommendation: "Create AWS Backup plans for critical resources",
+		})
+	}
+
+	if vaultErr == nil {
+		for _, v := range vaultsOut.BackupVaultList {
+			kmsArn := strings.TrimSpace(aws.ToString(v.EncryptionKeyArn))
+			if kmsArn == "" {
+				risks = append(risks, BackupRisk{
+					RiskType:       "BackupVaultUnencrypted",
+					Severity:       SeverityMedium,
+					Resource:       aws.ToString(v.BackupVaultName),
+					Description:    "Backup vault has no KMS key configured",
+					Recommendation: "Configure backup vault encryption with a KMS key",
+				})
+			}
+		}
+	}
+
+	crossRegionEnabled := false
+	minRetentionDays := int64(-1)
+	if plansErr == nil {
+		for _, planRef := range plansOut.BackupPlansList {
+			planID := aws.ToString(planRef.BackupPlanId)
+			if strings.TrimSpace(planID) == "" {
+				continue
+			}
+			plan, err := s.backupClient.GetBackupPlan(ctx, &backup.GetBackupPlanInput{
+				BackupPlanId: aws.String(planID),
+			})
+			if err != nil || plan.BackupPlan == nil {
+				continue
+			}
+			for _, rule := range plan.BackupPlan.Rules {
+				if rule.Lifecycle != nil && rule.Lifecycle.DeleteAfterDays != nil {
+					days := *rule.Lifecycle.DeleteAfterDays
+					if minRetentionDays == -1 || days < minRetentionDays {
+						minRetentionDays = days
+					}
+				}
+				for _, copyAction := range rule.CopyActions {
+					if isCrossRegionVaultArn(aws.ToString(copyAction.DestinationBackupVaultArn), s.region) {
+						crossRegionEnabled = true
+					}
+				}
+			}
+		}
+	}
+
+	if plansErr == nil && len(plansOut.BackupPlansList) > 0 && !crossRegionEnabled {
+		risks = append(risks, BackupRisk{
+			RiskType:       "NoCrossRegionBackup",
+			Severity:       SeverityMedium,
+			Resource:       "AWS Backup Plans",
+			Description:    "No cross-region backup copy actions are configured",
+			Recommendation: "Configure cross-region backup copy for disaster recovery",
+		})
+	}
+
+	if minRetentionDays > -1 && minRetentionDays < 30 {
+		risks = append(risks, BackupRisk{
+			RiskType:       "ShortBackupRetention",
+			Severity:       SeverityMedium,
+			Resource:       "AWS Backup Plans",
+			Description:    "Backup retention is configured for less than 30 days",
+			Recommendation: "Set lifecycle retention to at least 30 days for critical data",
+		})
+	}
+
+	if protectedErr == nil {
+		protectedTypes := map[string]bool{}
+		for _, pr := range protectedOut.Results {
+			protectedTypes[strings.ToUpper(aws.ToString(pr.ResourceType))] = true
+		}
+
+		expected := []string{"EC2", "RDS", "EFS"}
+		for _, typ := range expected {
+			if !hasProtectedType(protectedTypes, typ) {
+				risks = append(risks, BackupRisk{
+					RiskType:       "CriticalResourceNotInBackupPlan",
+					Severity:       SeverityMedium,
+					Resource:       typ,
+					Description:    "No protected " + typ + " resources found in AWS Backup",
+					Recommendation: "Add critical " + typ + " resources to backup plans",
+				})
+			}
+		}
+	}
+
+	return risks, nil
+}
+
+func hasProtectedType(types map[string]bool, want string) bool {
+	want = strings.ToUpper(strings.TrimSpace(want))
+	for k := range types {
+		if k == want || strings.Contains(k, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func isCrossRegionVaultArn(vaultArn, currentRegion string) bool {
+	parts := strings.Split(vaultArn, ":")
+	if len(parts) < 4 {
+		return false
+	}
+	destRegion := strings.TrimSpace(parts[3])
+	return destRegion != "" && currentRegion != "" && !strings.EqualFold(destRegion, currentRegion)
 }
 
 func joinIssues(issues []string) string {

@@ -30,8 +30,9 @@ type ExtendedSecurityInput struct {
 	ALBRisks      []elb.ALBSecurityRisk
 	ListenerRisks []elb.ListenerSecurityRisk
 	// Lambda Security
-	LambdaRoles    []lambdasecurity.OverlyPermissiveRole
-	LambdaCrossReg []lambdasecurity.CrossRegionExecution
+	LambdaRoles       []lambdasecurity.OverlyPermissiveRole
+	LambdaCrossReg    []lambdasecurity.CrossRegionExecution
+	LambdaConfigRisks []lambdasecurity.LambdaConfigRisk
 	// CloudTrail Security
 	RoleCreations []cloudtrailsecurity.IAMRoleCreationEvent
 	RootUsage     []cloudtrailsecurity.RootAccountUsage
@@ -221,6 +222,21 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		t.SetStyle(table.StyleRounded)
 		t.Render()
 	}
+	if len(input.LambdaConfigRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("λ Lambda Configuration Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk", "Function", "Detail"})
+		for _, r := range input.LambdaConfigRisks {
+			detail := r.SupportingDetail
+			if detail == "" {
+				detail = r.Description
+			}
+			t.AppendRow(table.Row{input.AccountID, input.Region, formatSeverity(r.Severity), r.RiskType, truncate(r.FunctionName, 22), truncate(detail, 38)})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
 
 	// === ELB Security ===
 	if len(input.ALBRisks) > 0 {
@@ -272,7 +288,7 @@ func boolIcon(b bool) string {
 }
 
 func countTotalIssues(input ExtendedSecurityInput) int {
-	return len(input.ALBRisks) + len(input.LambdaRoles) +
+	return len(input.ALBRisks) + len(input.LambdaRoles) + len(input.LambdaConfigRisks) +
 		len(input.RootUsage) + len(input.RDSRisks) + len(input.ExternalIDRisks) +
 		len(input.BoundaryRisks) + len(input.PeeringRisks) + len(input.BastionHosts) +
 		len(input.MissingEndpoints) + len(input.AIRisks)

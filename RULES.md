@@ -240,6 +240,63 @@
 
 ---
 
+## 💾 Backup & Disaster Recovery (5 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **No AWS Backup Plan** | Detects accounts with no AWS Backup plans configured |
+| **Backup Vault Unencrypted** | Flags backup vaults without KMS key configuration |
+| **No Cross-Region Backup** | Detects backup plans without cross-region copy actions |
+| **Critical Resources Not Protected** | Flags missing protected resource coverage for critical classes (EC2/RDS/EFS) |
+| **Short Backup Retention** | Identifies backup lifecycle retention configured for less than 30 days |
+
+---
+
+## 🏛️ Organizations & SCP Expansion (4 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **No SCP Protection at Root** | Detects organizations where no SCP is attached to the root target |
+| **Root Access Not Blocked in Members** | Flags missing SCP deny patterns to restrict root-user sensitive actions |
+| **No Region Restriction Guardrails** | Detects missing `aws:RequestedRegion` deny guardrails in SCPs |
+| **AI Services Unrestricted** | Flags missing SCP restrictions for Bedrock/SageMaker actions |
+
+---
+
+## λ Lambda Security Expansion (5 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **VPC Lambda Without Egress** | Detects Lambda functions in VPC subnets with no NAT route or VPC endpoint coverage |
+| **Untrusted Lambda Layers** | Flags Lambda layers outside approved/AWS-managed publishers |
+| **Reserved Concurrency Set to 0** | Identifies functions effectively disabled by hard concurrency limit |
+| **SnapStart With Secret-like Env Keys** | Detects SnapStart-enabled functions that include secret-like environment variable keys |
+| **Function URL Without Auth** | Flags Function URLs configured with `AuthType=NONE` |
+
+---
+
+## 🧭 EventBridge/Step Functions Security (3 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **Open EventBridge Bus** | Detects custom EventBridge buses with policies that allow public principals |
+| **Step Function Logging Disabled** | Flags state machines without CloudWatch logging (or logging level set to `OFF`) |
+| **State Machine Public Exposure** | Flags Express workflows whose execution role trust policy allows wildcard principals |
+
+---
+
+## 🧠 ElastiCache/MemoryDB Security (5 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **No Encryption at Rest** | Detects cache resources without at-rest encryption hardening (including missing CMK governance for MemoryDB) |
+| **No Encryption in Transit** | Flags clusters where TLS/transit encryption is disabled |
+| **Publicly Accessible Cache Placement** | Detects cache subnet groups mapped to subnets with public IP assignment enabled |
+| **Redis Auth Not Enforced** | Flags Redis/Valkey resources without auth token (or MemoryDB open-access ACL) |
+| **Default Port Used** | Detects default Redis/Memcached ports (6379/11211) in use |
+
+---
+
 ## 📊 Summary
 
 | Category | Rule Count | Production Ready |
@@ -259,7 +316,12 @@
 | AI Attack Detection | 10 | ✅ |
 | SNS/SQS Security | 5 | ✅ |
 | ECR Security | 5 | ✅ |
-| **Total** | **117** | ✅ |
+| Backup & DR Security | 5 | ✅ |
+| Organizations & SCP Expansion | 4 | ✅ |
+| Lambda Security Expansion | 5 | ✅ |
+| EventBridge/Step Functions Security | 3 | ✅ |
+| ElastiCache/MemoryDB Security | 5 | ✅ |
+| **Total** | **139** | ✅ |
 
 ---
 
