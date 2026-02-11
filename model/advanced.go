@@ -3,6 +3,7 @@ package model
 import (
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
 	"github.com/thirukguru/aws-perimeter/service/cachesecurity"
+	"github.com/thirukguru/aws-perimeter/service/cognitosecurity"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
 	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
 	"github.com/thirukguru/aws-perimeter/service/eventsecurity"
@@ -13,6 +14,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/redshiftsecurity"
 	"github.com/thirukguru/aws-perimeter/service/resourcepolicy"
 	"github.com/thirukguru/aws-perimeter/service/securityhub"
+	"github.com/thirukguru/aws-perimeter/service/vpcadvanced"
 )
 
 // RenderAdvancedInput contains advanced security findings
@@ -62,6 +64,12 @@ type RenderAdvancedInput struct {
 
 	// Redshift Security
 	RedshiftSecurityRisks []redshiftsecurity.RedshiftRisk
+
+	// VPC Foundational Security
+	FoundationalNetworkRisks []vpcadvanced.FoundationalNetworkRisk
+
+	// Cognito Security
+	CognitoSecurityRisks []cognitosecurity.CognitoRisk
 }
 
 // AdvancedReportJSON represents the JSON output for advanced security checks
@@ -108,4 +116,10 @@ type AdvancedReportJSON struct {
 
 	// Redshift Security
 	RedshiftSecurityRisks []redshiftsecurity.RedshiftRisk `json:"redshift_security_risks,omitempty"`
+
+	// VPC Foundational Security
+	FoundationalNetworkRisks []vpcadvanced.FoundationalNetworkRisk `json:"foundational_network_risks,omitempty"`
+
+	// Cognito Security
+	CognitoSecurityRisks []cognitosecurity.CognitoRisk `json:"cognito_security_risks,omitempty"`
 }

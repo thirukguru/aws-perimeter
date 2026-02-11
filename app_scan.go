@@ -27,6 +27,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/cachesecurity"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
+	"github.com/thirukguru/aws-perimeter/service/cognitosecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
 	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
@@ -172,6 +173,7 @@ func buildOrchestratorService(
 	eventSecurityService := eventsecurity.NewService(awsCfg)
 	cacheSecurityService := cachesecurity.NewService(awsCfg)
 	redshiftSecService := redshiftsecurity.NewService(awsCfg)
+	cognitoSecService := cognitosecurity.NewService(awsCfg)
 	cloudtrailSecService := cloudtrailsecurity.NewService(awsCfg)
 	configService := config.NewService(awsCfg)
 	dataprotectionSvc := dataprotection.NewService(awsCfg)
@@ -207,6 +209,7 @@ func buildOrchestratorService(
 		eventSecurityService,
 		cacheSecurityService,
 		redshiftSecService,
+		cognitoSecService,
 		cloudtrailSecService,
 		configService,
 		dataprotectionSvc,

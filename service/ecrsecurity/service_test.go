@@ -83,3 +83,44 @@ func TestRepositoryChecks(t *testing.T) {
 		t.Fatalf("expected KMS encryption check to be true")
 	}
 }
+
+func TestPolicyAllowsBatchGetImageFromWildcard(t *testing.T) {
+	policy := `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"ecr:BatchGetImage"}]}`
+	if !policyAllowsBatchGetImageFromWildcard(policy) {
+		t.Fatalf("expected wildcard batch-get policy to be detected")
+	}
+
+	policyNoBatch := `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"ecr:DescribeImages"}]}`
+	if policyAllowsBatchGetImageFromWildcard(policyNoBatch) {
+		t.Fatalf("did not expect non-batchget action to match")
+	}
+}
+
+func TestPolicyExternalBatchGetImageAccounts(t *testing.T) {
+	policy := `{
+		"Statement":[
+			{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"ecr:BatchGetImage"},
+			{"Effect":"Allow","Principal":{"AWS":["arn:aws:iam::999999999999:root","arn:aws:iam::888888888888:root"]},"Action":["ecr:GetDownloadUrlForLayer","ecr:BatchGetImage"]},
+			{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"ecr:BatchGetImage"}
+		]
+	}`
+	got := policyExternalBatchGetImageAccounts(policy, "123456789012")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 external account IDs, got %d (%v)", len(got), got)
+	}
+	if got[0] != "888888888888" || got[1] != "999999999999" {
+		t.Fatalf("unexpected external account IDs: %v", got)
+	}
+}
+
+func TestRepoSuppressionPatternMatch(t *testing.T) {
+	if !repoCoveredBySuppressionPolicy("team/app", false, []string{"team/*"}) {
+		t.Fatalf("expected prefix suppression pattern to match repo")
+	}
+	if repoCoveredBySuppressionPolicy("team/app", false, []string{"prod/*"}) {
+		t.Fatalf("did not expect unrelated suppression pattern to match repo")
+	}
+	if !repoCoveredBySuppressionPolicy("team/app", true, nil) {
+		t.Fatalf("expected all=true suppression coverage")
+	}
+}

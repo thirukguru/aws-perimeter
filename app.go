@@ -75,6 +75,7 @@ func run() error {
 			nil, // eventSecurityService
 			nil, // cacheSecurityService
 			nil, // redshiftSecService
+			nil, // cognitoSecService
 			nil, // cloudtrailSecService
 			nil, // configService
 			nil, // dataprotectionSvc

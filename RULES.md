@@ -228,7 +228,7 @@
 
 ---
 
-## 🐳 ECR Security (5 Rules) - NEW
+## 🐳 ECR Security (8 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -237,6 +237,9 @@
 | **Public ECR Repository** | Detects repositories with policies allowing public principals |
 | **No KMS Encryption** | Flags repositories not configured with KMS encryption |
 | **No Lifecycle Policy** | Finds repositories without lifecycle retention policy |
+| **Cross-Account Pull Policy** | Flags repositories allowing `ecr:BatchGetImage` for wildcard principals or external account principals |
+| **Image Tag Immutability Bypass Risk** | Flags repositories with mutable tags (tag immutability disabled), enabling tag overwrite attacks |
+| **No Vulnerability Suppression Policy** | Flags repositories without Inspector suppression/exception filter governance for vulnerability findings |
 
 ---
 
@@ -263,7 +266,7 @@
 
 ---
 
-## λ Lambda Security Expansion (5 Rules) - NEW
+## λ Lambda Security Expansion (6 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -272,6 +275,7 @@
 | **Reserved Concurrency Set to 0** | Identifies functions effectively disabled by hard concurrency limit |
 | **SnapStart With Secret-like Env Keys** | Detects SnapStart-enabled functions that include secret-like environment variable keys |
 | **Function URL Without Auth** | Flags Function URLs configured with `AuthType=NONE` |
+| **Ephemeral Storage Encryption Not Enforced** | Flags functions using expanded ephemeral `/tmp` storage (>512 MB) without configured `KMSKeyArn` |
 
 ---
 
@@ -309,6 +313,18 @@
 
 ---
 
+## 🪪 Cognito Security (5 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **Weak Password/MFA Policy** | Detects weak user pool password policy settings or MFA disabled (`MfaConfiguration=OFF`) |
+| **User Pool Encryption Not Configured** | Flags user pools without configured customer-managed KMS integration where supported |
+| **Advanced Security Features Disabled** | Detects user pools where advanced security mode is not enforced |
+| **Public User Pool Client Without Secret** | Flags OAuth/auth-enabled app clients that do not use a client secret |
+| **Overly Permissive CORS** | Detects wildcard or non-HTTPS callback/logout URL configuration (except localhost dev patterns) |
+
+---
+
 ## 📊 Summary
 
 | Category | Rule Count | Production Ready |
@@ -327,14 +343,15 @@
 | Extended | 15 | ✅ |
 | AI Attack Detection | 10 | ✅ |
 | SNS/SQS Security | 5 | ✅ |
-| ECR Security | 5 | ✅ |
+| ECR Security | 8 | ✅ |
 | Backup & DR Security | 5 | ✅ |
 | Organizations & SCP Expansion | 4 | ✅ |
-| Lambda Security Expansion | 5 | ✅ |
+| Lambda Security Expansion | 6 | ✅ |
 | EventBridge/Step Functions Security | 3 | ✅ |
 | ElastiCache/MemoryDB Security | 5 | ✅ |
 | Redshift Security | 5 | ✅ |
-| **Total** | **144** | ✅ |
+| Cognito Security | 5 | ✅ |
+| **Total** | **153** | ✅ |
 
 ---
 

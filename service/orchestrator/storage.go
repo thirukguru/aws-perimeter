@@ -221,6 +221,34 @@ func (s *service) persistScanIfEnabled(
 			Recommendation: r.Recommendation,
 		})
 	}
+	for _, r := range advInput.CognitoSecurityRisks {
+		add(storage.Finding{
+			Hash:           findingHash("Cognito", r.RiskType, r.Resource),
+			Category:       "Cognito",
+			Subcategory:    "UserPool",
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "CognitoResource",
+			ResourceID:     r.Resource,
+			Title:          "Cognito Security Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
+	for _, r := range advInput.FoundationalNetworkRisks {
+		add(storage.Finding{
+			Hash:           findingHash("VPCFoundational", r.RiskType, r.ResourceID),
+			Category:       "VPC",
+			Subcategory:    "Foundational",
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "NetworkResource",
+			ResourceID:     r.ResourceID,
+			Title:          "VPC Foundational Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
 	for _, r := range aiRisks {
 		add(storage.Finding{Hash: findingHash("AI", r.RiskType, r.Resource), Category: "AI", Subcategory: "AttackDetection", RiskType: r.RiskType, Severity: r.Severity, ResourceType: "AWSResource", ResourceID: r.Resource, Title: "AI Attack Indicator", Description: r.Description, Recommendation: r.Recommendation})
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/cachesecurity"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
+	"github.com/thirukguru/aws-perimeter/service/cognitosecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
 	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
@@ -62,6 +63,7 @@ type service struct {
 	eventSecurityService eventsecurity.Service
 	cacheSecurityService cachesecurity.Service
 	redshiftSecService   redshiftsecurity.Service
+	cognitoSecService    cognitosecurity.Service
 	cloudtrailSecService cloudtrailsecurity.Service
 	configService        config.Service
 	dataprotectionSvc    dataprotection.Service

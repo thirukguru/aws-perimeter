@@ -4,11 +4,15 @@ package ecrsecurity
 import (
 	"context"
 	"encoding/json"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/aws/aws-sdk-go-v2/service/inspector2"
+	inspectortypes "github.com/aws/aws-sdk-go-v2/service/inspector2/types"
 )
 
 const (
@@ -34,19 +38,22 @@ type Service interface {
 }
 
 type service struct {
-	ecrClient *ecr.Client
+	ecrClient       *ecr.Client
+	inspectorClient *inspector2.Client
 }
 
 // NewService creates a new ECR security service.
 func NewService(cfg aws.Config) Service {
 	return &service{
-		ecrClient: ecr.NewFromConfig(cfg),
+		ecrClient:       ecr.NewFromConfig(cfg),
+		inspectorClient: inspector2.NewFromConfig(cfg),
 	}
 }
 
 // GetECRSecurityRisks evaluates ECR repositories for common security issues.
 func (s *service) GetECRSecurityRisks(ctx context.Context) ([]ECRRisk, error) {
 	var risks []ECRRisk
+	suppressionKnown, suppressionAll, suppressionPatterns := s.getSuppressionPolicyCoverage(ctx)
 
 	paginator := ecr.NewDescribeRepositoriesPaginator(s.ecrClient, &ecr.DescribeRepositoriesInput{})
 	for paginator.HasMorePages() {
@@ -68,6 +75,14 @@ func (s *service) GetECRSecurityRisks(ctx context.Context) ([]ECRRisk, error) {
 					RepositoryARN:  arn,
 					Description:    "Repository allows mutable image tags",
 					Recommendation: "Set image tag mutability to IMMUTABLE to reduce supply-chain risk",
+				})
+				risks = append(risks, ECRRisk{
+					RiskType:       "ImageTagImmutabilityBypass",
+					Severity:       SeverityHigh,
+					RepositoryName: name,
+					RepositoryARN:  arn,
+					Description:    "Tag immutability is disabled, allowing tags (including latest) to be overwritten",
+					Recommendation: "Set image tag mutability to IMMUTABLE for release repositories and CI/CD-managed images",
 				})
 			}
 
@@ -105,15 +120,52 @@ func (s *service) GetECRSecurityRisks(ctx context.Context) ([]ECRRisk, error) {
 				})
 			}
 
-			isPublic, err := s.isPublicRepository(ctx, name)
-			if err == nil && isPublic {
+			policyText, hasPolicy, err := s.getRepositoryPolicyText(ctx, name)
+			if err == nil && hasPolicy {
+				if policyHasPublicPrincipal(policyText) {
+					risks = append(risks, ECRRisk{
+						RiskType:       "PublicECRRepository",
+						Severity:       SeverityHigh,
+						RepositoryName: name,
+						RepositoryARN:  arn,
+						Description:    "Repository policy allows public access",
+						Recommendation: "Restrict repository policy principals and pull permissions",
+					})
+				}
+
+				if policyAllowsBatchGetImageFromWildcard(policyText) {
+					risks = append(risks, ECRRisk{
+						RiskType:       "CrossAccountPullPolicy",
+						Severity:       SeverityCritical,
+						RepositoryName: name,
+						RepositoryARN:  arn,
+						Description:    "Repository policy allows ecr:BatchGetImage pull access from wildcard principals",
+						Recommendation: "Remove wildcard principals and explicitly scope pull access to approved account principals",
+					})
+				}
+
+				repoAccountID := accountIDFromRepositoryARN(arn)
+				externalAccounts := policyExternalBatchGetImageAccounts(policyText, repoAccountID)
+				if len(externalAccounts) > 0 {
+					risks = append(risks, ECRRisk{
+						RiskType:       "CrossAccountPullPolicy",
+						Severity:       SeverityHigh,
+						RepositoryName: name,
+						RepositoryARN:  arn,
+						Description:    "Repository policy allows ecr:BatchGetImage pull access from external/unknown account principals",
+						Recommendation: "Review and remove unapproved external account principals from repository pull permissions",
+					})
+				}
+			}
+
+			if suppressionKnown && !repoCoveredBySuppressionPolicy(name, suppressionAll, suppressionPatterns) {
 				risks = append(risks, ECRRisk{
-					RiskType:       "PublicECRRepository",
-					Severity:       SeverityHigh,
+					RiskType:       "NoVulnerabilitySuppressionPolicy",
+					Severity:       SeverityMedium,
 					RepositoryName: name,
 					RepositoryARN:  arn,
-					Description:    "Repository policy allows public access",
-					Recommendation: "Restrict repository policy principals and pull permissions",
+					Description:    "No vulnerability suppression/exception policy found for this repository",
+					Recommendation: "Define an Inspector suppression filter policy with scoped repository criteria and expiry/governance controls",
 				})
 			}
 		}
@@ -150,17 +202,17 @@ func (s *service) hasLifecyclePolicy(ctx context.Context, repoName string) (bool
 	return false, err
 }
 
-func (s *service) isPublicRepository(ctx context.Context, repoName string) (bool, error) {
+func (s *service) getRepositoryPolicyText(ctx context.Context, repoName string) (string, bool, error) {
 	out, err := s.ecrClient.GetRepositoryPolicy(ctx, &ecr.GetRepositoryPolicyInput{
 		RepositoryName: aws.String(repoName),
 	})
 	if err != nil {
 		if isRepositoryPolicyMissingError(err) {
-			return false, nil
+			return "", false, nil
 		}
-		return false, err
+		return "", false, err
 	}
-	return policyHasPublicPrincipal(aws.ToString(out.PolicyText)), nil
+	return aws.ToString(out.PolicyText), true, nil
 }
 
 func isLifecyclePolicyMissingError(err error) bool {
@@ -171,6 +223,11 @@ func isLifecyclePolicyMissingError(err error) bool {
 func isRepositoryPolicyMissingError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "repositorypolicynotfoundexception")
+}
+
+func isAccessDeniedError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "accessdenied") || strings.Contains(msg, "unauthorized")
 }
 
 func policyHasPublicPrincipal(policyText string) bool {
@@ -217,4 +274,216 @@ func principalContainsWildcard(v interface{}) bool {
 		}
 	}
 	return false
+}
+
+func policyAllowsBatchGetImageFromWildcard(policyText string) bool {
+	statements := parsePolicyStatements(policyText)
+	for _, stmt := range statements {
+		if !strings.EqualFold(stmt.Effect, "Allow") {
+			continue
+		}
+		if !statementAllowsBatchGetImage(stmt.Action) {
+			continue
+		}
+		_, wildcard := extractPrincipalAccountIDs(stmt.Principal)
+		if wildcard {
+			return true
+		}
+	}
+	return false
+}
+
+func policyExternalBatchGetImageAccounts(policyText, repositoryAccountID string) []string {
+	statements := parsePolicyStatements(policyText)
+	seen := map[string]bool{}
+	var external []string
+
+	for _, stmt := range statements {
+		if !strings.EqualFold(stmt.Effect, "Allow") {
+			continue
+		}
+		if !statementAllowsBatchGetImage(stmt.Action) {
+			continue
+		}
+		accountIDs, wildcard := extractPrincipalAccountIDs(stmt.Principal)
+		if wildcard {
+			continue
+		}
+		for _, id := range accountIDs {
+			if id == "" || id == repositoryAccountID || seen[id] {
+				continue
+			}
+			seen[id] = true
+			external = append(external, id)
+		}
+	}
+
+	slices.Sort(external)
+	return external
+}
+
+func parsePolicyStatements(policyText string) []struct {
+	Principal interface{} `json:"Principal"`
+	Effect    string      `json:"Effect"`
+	Action    interface{} `json:"Action"`
+} {
+	if strings.TrimSpace(policyText) == "" {
+		return nil
+	}
+	var policy struct {
+		Statement []struct {
+			Principal interface{} `json:"Principal"`
+			Effect    string      `json:"Effect"`
+			Action    interface{} `json:"Action"`
+		} `json:"Statement"`
+	}
+	if err := json.Unmarshal([]byte(policyText), &policy); err != nil {
+		return nil
+	}
+	return policy.Statement
+}
+
+func statementAllowsBatchGetImage(action interface{}) bool {
+	for _, a := range normalizeActionList(action) {
+		la := strings.ToLower(strings.TrimSpace(a))
+		if la == "ecr:batchgetimage" || la == "ecr:*" || la == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeActionList(v interface{}) []string {
+	switch a := v.(type) {
+	case string:
+		return []string{a}
+	case []interface{}:
+		out := make([]string, 0, len(a))
+		for _, item := range a {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func extractPrincipalAccountIDs(principal interface{}) ([]string, bool) {
+	accountIDs := []string{}
+	seen := map[string]bool{}
+	var wildcard bool
+
+	var walk func(v interface{})
+	walk = func(v interface{}) {
+		switch p := v.(type) {
+		case string:
+			s := strings.TrimSpace(p)
+			if s == "*" {
+				wildcard = true
+				return
+			}
+			if id, ok := extractAccountIDFromPrincipalString(s); ok && !seen[id] {
+				seen[id] = true
+				accountIDs = append(accountIDs, id)
+			}
+		case []interface{}:
+			for _, item := range p {
+				walk(item)
+			}
+		case map[string]interface{}:
+			for _, inner := range p {
+				walk(inner)
+			}
+		}
+	}
+
+	walk(principal)
+	slices.Sort(accountIDs)
+	return accountIDs, wildcard
+}
+
+var awsAccountIDPattern = regexp.MustCompile(`\b\d{12}\b`)
+
+func extractAccountIDFromPrincipalString(s string) (string, bool) {
+	if m := awsAccountIDPattern.FindString(s); m != "" {
+		return m, true
+	}
+	return "", false
+}
+
+func accountIDFromRepositoryARN(arn string) string {
+	parts := strings.Split(arn, ":")
+	if len(parts) < 5 {
+		return ""
+	}
+	if id, ok := extractAccountIDFromPrincipalString(parts[4]); ok {
+		return id
+	}
+	return ""
+}
+
+func (s *service) getSuppressionPolicyCoverage(ctx context.Context) (known bool, all bool, repoPatterns []string) {
+	paginator := inspector2.NewListFiltersPaginator(s.inspectorClient, &inspector2.ListFiltersInput{
+		Action: inspectortypes.FilterActionSuppress,
+	})
+
+	seen := map[string]bool{}
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			if isAccessDeniedError(err) {
+				return false, false, nil
+			}
+			return false, false, nil
+		}
+		known = true
+		for _, filter := range page.Filters {
+			if filter.Criteria == nil {
+				all = true
+				continue
+			}
+			criteria := filter.Criteria.EcrImageRepositoryName
+			if len(criteria) == 0 {
+				continue
+			}
+			for _, c := range criteria {
+				v := strings.TrimSpace(aws.ToString(c.Value))
+				if v == "" || seen[v] {
+					continue
+				}
+				seen[v] = true
+				repoPatterns = append(repoPatterns, v)
+			}
+		}
+	}
+
+	slices.Sort(repoPatterns)
+	return known, all, repoPatterns
+}
+
+func repoCoveredBySuppressionPolicy(repoName string, all bool, patterns []string) bool {
+	if all {
+		return true
+	}
+	for _, p := range patterns {
+		if repositoryPatternMatch(repoName, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func repositoryPatternMatch(repoName, pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return false
+	}
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(repoName, strings.TrimSuffix(pattern, "*"))
+	}
+	return repoName == pattern
 }

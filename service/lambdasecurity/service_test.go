@@ -64,6 +64,36 @@ func TestLooksLikeSecretKeyName(t *testing.T) {
 	}
 }
 
+func TestHasEphemeralStorageEncryptionGap(t *testing.T) {
+	fnWithDefaultTmp := lambdatypes.FunctionConfiguration{
+		EphemeralStorage: &lambdatypes.EphemeralStorage{
+			Size: aws.Int32(512),
+		},
+	}
+	if hasEphemeralStorageEncryptionGap(fnWithDefaultTmp) {
+		t.Fatalf("did not expect default /tmp size to be flagged")
+	}
+
+	fnWithExpandedTmpNoKMS := lambdatypes.FunctionConfiguration{
+		EphemeralStorage: &lambdatypes.EphemeralStorage{
+			Size: aws.Int32(1024),
+		},
+	}
+	if !hasEphemeralStorageEncryptionGap(fnWithExpandedTmpNoKMS) {
+		t.Fatalf("expected expanded /tmp without KMS key to be flagged")
+	}
+
+	fnWithExpandedTmpAndKMS := lambdatypes.FunctionConfiguration{
+		EphemeralStorage: &lambdatypes.EphemeralStorage{
+			Size: aws.Int32(10240),
+		},
+		KMSKeyArn: aws.String("arn:aws:kms:us-east-1:123456789012:key/example"),
+	}
+	if hasEphemeralStorageEncryptionGap(fnWithExpandedTmpAndKMS) {
+		t.Fatalf("did not expect expanded /tmp with KMS key to be flagged")
+	}
+}
+
 func TestUntrustedLayerARNs(t *testing.T) {
 	layers := []lambdatypes.Layer{
 		{Arn: aws.String("arn:aws:lambda:us-east-1:580247275435:layer:LambdaInsightsExtension:1")},

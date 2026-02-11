@@ -264,6 +264,18 @@ func (s *service) GetLambdaConfigRisks(ctx context.Context) ([]LambdaConfigRisk,
 				})
 			}
 
+			if hasEphemeralStorageEncryptionGap(fn) {
+				risks = append(risks, LambdaConfigRisk{
+					RiskType:         "EphemeralStorageEncryptionNotEnforced",
+					FunctionName:     functionName,
+					FunctionARN:      functionARN,
+					Severity:         SeverityMedium,
+					Description:      "Function uses expanded ephemeral /tmp storage without a configured customer-managed KMS key",
+					Recommendation:   "Configure a customer-managed KMS key (`KMSKeyArn`) for Lambda data-at-rest controls when using larger ephemeral storage",
+					SupportingDetail: fmt.Sprintf("EphemeralStorageMB=%d", aws.ToInt32(fn.EphemeralStorage.Size)),
+				})
+			}
+
 			urlConfigs, err := s.listFunctionURLConfigs(ctx, functionName)
 			if err != nil {
 				return nil, err
@@ -606,6 +618,18 @@ func hasSnapStartWithSecretLikeEnv(snapStart *lambdatypes.SnapStartResponse, env
 		}
 	}
 	return false
+}
+
+func hasEphemeralStorageEncryptionGap(fn lambdatypes.FunctionConfiguration) bool {
+	// Lambda default /tmp (512 MB) uses AWS-managed encryption by default.
+	// Flag explicit expanded ephemeral storage when no customer-managed key is configured.
+	if fn.EphemeralStorage == nil {
+		return false
+	}
+	if aws.ToInt32(fn.EphemeralStorage.Size) <= 512 {
+		return false
+	}
+	return strings.TrimSpace(aws.ToString(fn.KMSKeyArn)) == ""
 }
 
 func looksLikeSecretKeyName(name string) bool {

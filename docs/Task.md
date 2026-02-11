@@ -80,18 +80,19 @@
 ## Phase 3: Security Coverage Expansion 🔲 PLANNED
 
 ### Phase 3 - Wave 1 Priority Order
-1. SNS/SQS Security (5 checks)
-2. ECR Security (5 checks)
-3. Backup & Disaster Recovery (5 checks)
-4. Organizations & SCP Expansion (4 checks)
-5. Lambda Security Expansion (5 checks)
+- [x] SNS/SQS Security (5 checks)
+- [x] ECR Security (8 checks)
+- [x] Backup & Disaster Recovery (8 checks)
+- [x] Organizations & SCP Expansion (6 checks)
+- [x] Lambda Security Expansion (6 checks)
 
-### Lambda Security Expansion (5 checks)
+### Lambda Security Expansion (6 checks)
 - [x] VPC Lambda without NAT or VPC endpoints
 - [x] Lambda layer risks (public/untrusted layers)
 - [x] Reserved concurrency set to 0
 - [x] Lambda SnapStart with secrets exposure risk
 - [x] Function URL without auth
+- [x] Ephemeral storage encryption not enforced (`/tmp` > 512 MB without `KMSKeyArn`)
 
 ### SNS/SQS Security (5 checks)
 - [x] Public SNS topics (`Principal: "*"`)
@@ -105,12 +106,27 @@
 - [x] Step Functions logging disabled
 - [x] State machine public exposure risk
 
-### ECR Security (5 checks)
+### ECR Security (8 checks)
 - [x] Mutable image tags enabled
 - [x] No image vulnerability scanning
 - [x] Public ECR repository
 - [x] ECR encryption with KMS not configured
 - [x] No image lifecycle policy
+- [x] Cross-account pull policy allows `ecr:BatchGetImage` from `Principal: "*"` or unknown external account IDs
+- [x] Image tag immutability bypass risk (`Tag Immutability` disabled)
+- [x] No ECR vulnerability suppression policy/exception governance
+
+### S3 Security Baseline (5 checks)
+- [x] Public S3 buckets (`BucketPolicy`/ACL allows `Principal: "*"`)
+- [x] S3 bucket versioning/Object Lock disabled on critical buckets
+- [x] S3 server-side encryption not enforced (`SSE-KMS`/`SSE-S3`)
+- [x] S3 Block Public Access disabled or public read/write ACLs present
+- [x] S3 access logging disabled
+
+### VPC Foundational Security (3 checks)
+- [x] Default VPC not deleted/isolated (foundational hardening)
+- [x] VPC Flow Logs disabled
+- [x] Internet gateways with unrestricted routes
 
 ### ElastiCache/MemoryDB Security (5 checks)
 - [x] No encryption at rest
@@ -127,24 +143,35 @@
 - [x] Enhanced VPC routing disabled
 
 ### Cognito Security (5 checks)
-- [ ] Weak password/MFA policy
-- [ ] User pool encryption not configured
-- [ ] Advanced security features disabled
-- [ ] Public user pool client without secret
-- [ ] Overly permissive CORS
+- [x] Weak password/MFA policy
+- [x] User pool encryption not configured
+- [x] Advanced security features disabled
+- [x] Public user pool client without secret
+- [x] Overly permissive CORS
 
-### Backup & Disaster Recovery (5 checks)
+### Backup & Disaster Recovery (8 checks)
 - [x] No AWS Backup plan
 - [x] Backup vault unencrypted
 - [x] No cross-region backup
 - [x] Critical resources missing from backup plan
 - [x] Backup retention less than 30 days
+- [ ] S3 Object Lock/Versioning disabled on critical buckets (name/tag-based ransomware recovery guardrail)
+- [ ] Backup vault access policy allows `backup:DeleteRecoveryPoint` from root/admin roles
+- [ ] Public EBS/RDS snapshots (cross-account/public exposure)
 
-### Organizations & SCP Expansion (4 checks)
+### Organizations & SCP Expansion (6 checks)
 - [x] No SCP protection for root account
 - [x] Member account root access not blocked by SCP
 - [x] No region restriction guardrails
 - [x] AI services unrestricted (Bedrock/SageMaker)
+- [ ] Dangling delegated administrators for GuardDuty/Macie/IAM Access Analyzer
+- [ ] No full MFA enforcement on root/console access
+
+### Monitoring & Native Security Services (4 checks)
+- [ ] GuardDuty not fully enabled (including S3, EKS, ECS runtime protection plans)
+- [ ] AWS Security Hub disabled or standards incomplete (FSBP/CIS)
+- [ ] AWS Config recorder disabled in one or more regions
+- [ ] Amazon Inspector not scanning EC2/ECR/Lambda
 
 ### Network Firewall & Route 53 Security (4 checks)
 - [ ] No AWS Network Firewall in high-security VPCs
@@ -162,6 +189,12 @@
 - [ ] Glue Data Catalog unencrypted
 - [ ] Athena query results unencrypted
 - [ ] Overly permissive Data Catalog policy
+
+### OpenSearch/Elasticsearch Security (4 checks)
+- [ ] Publicly accessible domains
+- [ ] Fine-grained access control disabled
+- [ ] Node-to-node encryption disabled
+- [ ] Audit logs not published to CloudWatch
 
 ### Enhanced AI/ML Detection (5 checks)
 - [ ] SageMaker notebook public exposure
@@ -181,6 +214,28 @@
 - [ ] Database export/snapshot copy to external accounts
 - [ ] Mass Secrets Manager secret reads
 
+## Phase 3.5: Identity & Secrets Deep Dive 🔲 PLANNED
+*Keys to the Kingdom module for nuanced identity/secrets risks often missed by baseline checks.*
+
+### Secrets Manager & Parameter Store (3 checks)
+- [ ] Stale secrets detection (not rotated or accessed in >90 days)
+- [ ] Hardcoded secret versions (policy allows all versions instead of `AWSCURRENT`)
+- [ ] Publicly accessible secrets (`Principal: "*"`) in resource policies
+
+### IAM Advanced Privilege Escalation (6 checks)
+- [ ] `iam:PassRole` to Glue/SageMaker permissions (escalation path to privileged compute)
+- [ ] `iam:PassRole` to EC2/ECS without restrictive conditions
+- [ ] Cross-account trust roles missing `sts:ExternalId` condition (confused deputy risk)
+- [ ] Active access keys unused >90 days
+- [ ] Console passwords unused >90 days
+- [ ] KMS key policies too permissive (admin/root principals can decrypt broadly)
+
+### Duplicate Review Notes
+- [ ] ECR image scanning disabled: already tracked as `No image vulnerability scanning` under `ECR Security`
+- [ ] Lambda in VPC without endpoints/NAT: already tracked under `Lambda Security Expansion`
+- [ ] IAM users with active keys >90 days unused: already tracked under `Phase 3.5` IAM advanced checks
+- [ ] Default VPC usage in running resources: already tracked under `Phase 4` Global Network Security
+
 ## Phase 4: Risk Intelligence & Automation 🔲 PLANNED
 - [ ] Contextual severity scoring
 - [ ] Risk scoring dashboard (account/region)
@@ -188,6 +243,15 @@
 - [ ] Drift detection between scans
 - [ ] Auto-remediation templates (Terraform/CloudFormation)
 - [ ] Slack/PagerDuty critical alerting
+
+### Global Network Security (Transit Gateway & VPC)
+- [ ] TGW auto-accept shared attachments enabled (`AutoAcceptSharedAttachments`)
+- [ ] Unencrypted inter-region VPC peering traffic exposure
+- [ ] Default VPC usage for running resources
+
+### Forensic Readiness
+- [ ] Missing `Forensics-Isolation` security group (no inbound/outbound rules for quarantine)
+- [ ] CloudTrail log file validation disabled
 
 ## Phase 5: Enterprise Features 🔲 PLANNED
 - [ ] Multi-account Organizations support
@@ -204,6 +268,7 @@
 | Phase 1 | ✅ Complete | 73 |
 | Phase 2 | 🔲 In Progress | +24 |
 | Phase 2.5 | ✅ Complete (Validated) | +10 |
-| Phase 3 | 🔲 Planned | +65 |
-| Phase 4 | 🔲 Planned | 6 features |
+| Phase 3 | 🔲 Planned | +89 |
+| Phase 3.5 | 🔲 Planned | +9 |
+| Phase 4 | 🔲 Planned | 6 features + 5 checks |
 | Phase 5 | 🔲 Planned | 4 features |

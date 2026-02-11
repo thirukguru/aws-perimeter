@@ -516,6 +516,8 @@ func BuildAdvancedReport(input model.RenderAdvancedInput, generatedAt string) mo
 	output.EventWorkflowRisks = input.EventWorkflowRisks
 	output.CacheSecurityRisks = input.CacheSecurityRisks
 	output.RedshiftSecurityRisks = input.RedshiftSecurityRisks
+	output.FoundationalNetworkRisks = input.FoundationalNetworkRisks
+	output.CognitoSecurityRisks = input.CognitoSecurityRisks
 
 	return output
 }

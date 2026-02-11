@@ -455,6 +455,46 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		t.Render()
 	}
 
+	// VPC Foundational Security
+	if len(input.FoundationalNetworkRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🛣️ VPC Foundational Network Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk", "Resource", "Description"})
+		for _, r := range input.FoundationalNetworkRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.RiskType,
+				truncate(r.ResourceID, 28),
+				truncate(r.Description, 42),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	// Cognito Security
+	if len(input.CognitoSecurityRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🪪 Cognito Security Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk", "Resource", "Description"})
+		for _, r := range input.CognitoSecurityRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.RiskType,
+				truncate(r.Resource, 28),
+				truncate(r.Description, 42),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
 	// Resource-based Policies
 	allPolicyRisks := append(input.LambdaPolicyRisks, input.SQSPolicyRisks...)
 	allPolicyRisks = append(allPolicyRisks, input.SNSPolicyRisks...)
@@ -480,7 +520,8 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		len(input.APINoAuth) + len(input.APINoRateLimits) + len(allPolicyRisks) +
 		len(input.MessagingSecurityRisks) + len(input.ECRSecurityRisks) +
 		len(input.BackupRisks) + len(input.OrgGuardrailRisks) + len(input.LambdaConfigRisks) +
-		len(input.EventWorkflowRisks) + len(input.CacheSecurityRisks) + len(input.RedshiftSecurityRisks)
+		len(input.EventWorkflowRisks) + len(input.CacheSecurityRisks) + len(input.RedshiftSecurityRisks) +
+		len(input.FoundationalNetworkRisks) + len(input.CognitoSecurityRisks)
 
 	if totalIssues == 0 &&
 		(input.HubStatus == nil || input.HubStatus.IsEnabled) &&

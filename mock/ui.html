@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS Doctor SaaS Mock</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ["Space Grotesk", "sans-serif"],
+            mono: ["IBM Plex Mono", "monospace"]
+          },
+          colors: {
+            base: "#060606",
+            panel: "#101010",
+            panel2: "#171717",
+            line: "#242424",
+            ink: "#f4f4f5",
+            muted: "#9ca3af",
+            good: "#22c55e",
+            warn: "#f59e0b",
+            risk: "#ef4444",
+            accent: "#06b6d4"
+          },
+          boxShadow: {
+            glow: "0 0 0 1px rgba(6,182,212,0.25), 0 12px 40px rgba(6,182,212,0.12)",
+            card: "0 8px 28px rgba(0,0,0,0.45)"
+          }
+        }
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    .glass { backdrop-filter: blur(10px); background: linear-gradient(130deg, rgba(255,255,255,.06), rgba(255,255,255,.02)); }
+    .bg-grid {
+      background-image: linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    .pulse-dot { animation: pulseDot 1.8s infinite; }
+    @keyframes pulseDot { 0%,100%{opacity:.25; transform:scale(.9)} 50%{opacity:1; transform:scale(1)} }
+    .in-up { animation: inUp .45s ease both; }
+    @keyframes inUp { from {opacity:0; transform: translateY(10px)} to {opacity:1; transform: translateY(0)} }
+  </style>
+</head>
+<body class="bg-base text-ink font-display min-h-screen bg-grid">
+  <div class="pointer-events-none fixed inset-0">
+    <div class="absolute -top-48 left-1/3 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl"></div>
+    <div class="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-green-500/10 blur-3xl"></div>
+  </div>
+
+  <div class="relative z-10">
+    <header class="sticky top-0 z-20 border-b border-line/80 glass">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="flex h-16 items-center justify-between">
+          <div class="flex items-center gap-6">
+            <div class="flex items-center gap-3">
+              <div class="h-9 w-9 rounded-xl bg-cyan-400/10 border border-cyan-300/20 flex items-center justify-center shadow-glow">
+                <span class="font-mono text-cyan-300">AD</span>
+              </div>
+              <div>
+                <p class="text-sm uppercase tracking-[0.2em] text-muted">AWS Doctor</p>
+                <p class="text-sm text-ink">Security + Cost SaaS</p>
+              </div>
+            </div>
+            <nav id="mainNav" class="flex items-center gap-2 overflow-x-auto pb-1">
+              <button data-page="dashboard" class="nav-btn rounded-lg px-3 py-2 text-sm transition bg-white/10 text-white">Dashboard</button>
+              <button data-page="security" class="nav-btn rounded-lg px-3 py-2 text-sm transition text-muted hover:text-white hover:bg-white/5">Security</button>
+              <button data-page="cost" class="nav-btn rounded-lg px-3 py-2 text-sm transition text-muted hover:text-white hover:bg-white/5">Cost</button>
+              <button data-page="intelligence" class="nav-btn rounded-lg px-3 py-2 text-sm transition text-muted hover:text-white hover:bg-white/5">Insights</button>
+              <button data-page="accounts" class="nav-btn rounded-lg px-3 py-2 text-sm transition text-muted hover:text-white hover:bg-white/5">Accounts</button>
+            </nav>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button id="runScanBtn" class="rounded-lg border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-sm hover:bg-cyan-400/20 transition">Run Mock Scan</button>
+            <button class="rounded-lg border border-line px-3 py-2 text-sm hover:bg-white/5 transition">Connect AWS Account</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <section id="dashboard-page" class="page in-up">
+        <div class="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 class="text-3xl font-bold">Command Center</h1>
+            <p class="mt-1 text-muted">Live posture across security, spend, and incident readiness.</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <select id="accountFilter" class="rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink">
+              <option>All Accounts (3)</option>
+              <option>Production - 123456789012</option>
+              <option>Staging - 234567890123</option>
+              <option>Development - 345678901234</option>
+            </select>
+            <select id="regionFilter" class="rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink">
+              <option>All Regions</option>
+              <option>us-east-1</option>
+              <option>us-west-2</option>
+              <option>eu-west-1</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" id="metricCards"></div>
+
+        <div class="mt-6 grid gap-6 lg:grid-cols-2">
+          <div class="rounded-2xl border border-line bg-panel2 p-5 shadow-card">
+            <h2 class="mb-4 text-lg font-semibold">Security Trend (30 days)</h2>
+            <canvas id="securityTrend" height="180"></canvas>
+          </div>
+          <div class="rounded-2xl border border-line bg-panel2 p-5 shadow-card">
+            <h2 class="mb-4 text-lg font-semibold">Cost Trend (6 months)</h2>
+            <canvas id="costTrend" height="180"></canvas>
+          </div>
+        </div>
+
+        <div class="mt-6 grid gap-6 lg:grid-cols-2">
+          <div class="rounded-2xl border border-line bg-panel2 p-5 shadow-card">
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <h2 class="text-lg font-semibold">Region-wise Scans</h2>
+              <select id="regionWindowFilter" class="rounded-lg border border-line bg-panel px-3 py-2 text-xs">
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+                <option value="90">Last 90 days</option>
+              </select>
+            </div>
+            <canvas id="regionScansChart" height="190"></canvas>
+          </div>
+          <div class="rounded-2xl border border-line bg-panel2 p-5 shadow-card">
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <h2 class="text-lg font-semibold">Region-wise Vulnerabilities</h2>
+              <select id="vulnSeveritySetFilter" class="rounded-lg border border-line bg-panel px-3 py-2 text-xs">
+                <option value="all" selected>Critical + High + Low</option>
+                <option value="ch">Critical + High only</option>
+              </select>
+            </div>
+            <canvas id="regionalVulnChart" height="190"></canvas>
+          </div>
+        </div>
+
+        <div class="mt-6 rounded-2xl border border-line bg-panel2 p-5 shadow-card">
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-lg font-semibold">Top Priorities</h2>
+            <span class="text-xs text-muted">Auto-ranked by impact score</span>
+          </div>
+          <div id="priorityList" class="space-y-3"></div>
+        </div>
+      </section>
+
+      <section id="security-page" class="page hidden in-up">
+        <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 class="text-3xl font-bold">Security Findings</h1>
+            <p class="mt-1 text-muted">Filter and triage findings with remediation context.</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <select id="severityFilter" class="rounded-lg border border-line bg-panel px-3 py-2 text-sm">
+              <option value="all">All Severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+            </select>
+            <select id="serviceFilter" class="rounded-lg border border-line bg-panel px-3 py-2 text-sm">
+              <option value="all">All Services</option>
+              <option value="S3">S3</option>
+              <option value="IAM">IAM</option>
+              <option value="ECR">ECR</option>
+              <option value="CloudTrail">CloudTrail</option>
+            </select>
+            <select id="findingRegionFilter" class="rounded-lg border border-line bg-panel px-3 py-2 text-sm">
+              <option value="all">All Regions</option>
+              <option value="us-east-1">us-east-1</option>
+              <option value="us-west-2">us-west-2</option>
+              <option value="eu-west-1">eu-west-1</option>
+            </select>
+          </div>
+        </div>
+        <div class="rounded-2xl border border-line bg-panel2 p-2 shadow-card overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="text-xs uppercase text-muted">
+              <tr>
+                <th class="p-3">Severity</th>
+                <th class="p-3">Service</th>
+                <th class="p-3">Finding</th>
+                <th class="p-3">Account</th>
+                <th class="p-3">Region</th>
+                <th class="p-3">Action</th>
+              </tr>
+            </thead>
+            <tbody id="findingRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="cost-page" class="page hidden in-up">
+        <h1 class="text-3xl font-bold">Cost Optimization</h1>
+        <p class="mt-1 text-muted">Savings opportunities without weakening security.</p>
+        <div class="mt-6 grid gap-6 lg:grid-cols-2">
+          <div class="rounded-2xl border border-line bg-panel2 p-5 shadow-card">
+            <h2 class="mb-4 text-lg font-semibold">Waste by Service</h2>
+            <canvas id="wasteByService" height="210"></canvas>
+          </div>
+          <div class="rounded-2xl border border-line bg-panel2 p-5 shadow-card">
+            <h2 class="mb-4 text-lg font-semibold">Recommended Actions</h2>
+            <ul id="costActions" class="space-y-3"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="intelligence-page" class="page hidden in-up">
+        <h1 class="text-3xl font-bold">Smart Insights</h1>
+        <p class="mt-1 text-muted">AI-ranked paths combining blast radius, exploitability, and cost.</p>
+        <div id="insightCards" class="mt-6 grid gap-4 md:grid-cols-2"></div>
+      </section>
+
+      <section id="accounts-page" class="page hidden in-up">
+        <div class="mb-6 flex items-center justify-between">
+          <div>
+            <h1 class="text-3xl font-bold">AWS Accounts</h1>
+            <p class="mt-1 text-muted">Onboarding, health, and trust relationship status.</p>
+          </div>
+          <button id="mockAddAccount" class="rounded-lg border border-line px-3 py-2 text-sm hover:bg-white/5">+ Add Mock Account</button>
+        </div>
+        <div id="accountCards" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="scanToast" class="fixed bottom-5 right-5 hidden w-80 rounded-xl border border-line bg-panel2 p-4 shadow-glow">
+    <div class="mb-2 flex items-center justify-between">
+      <p class="text-sm font-semibold">Running Mock Scan</p>
+      <span id="scanPct" class="font-mono text-xs text-cyan-300">0%</span>
+    </div>
+    <div class="h-2 w-full overflow-hidden rounded-full bg-black/40">
+      <div id="scanBar" class="h-full w-0 bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-300"></div>
+    </div>
+    <p id="scanMsg" class="mt-2 text-xs text-muted">Initializing scanner...</p>
+  </div>
+
+  <script>
+    const pages = ["dashboard", "security", "cost", "intelligence", "accounts"];
+    const navButtons = document.querySelectorAll(".nav-btn");
+    navButtons.forEach(btn => btn.addEventListener("click", () => showPage(btn.dataset.page)));
+
+    function showPage(page) {
+      pages.forEach(p => {
+        document.getElementById(`${p}-page`).classList.toggle("hidden", p !== page);
+      });
+      navButtons.forEach(btn => {
+        const active = btn.dataset.page === page;
+        btn.classList.toggle("bg-white/10", active);
+        btn.classList.toggle("text-white", active);
+        btn.classList.toggle("text-muted", !active);
+      });
+    }
+
+    const metrics = [
+      { label: "Security Score", value: "78/100", delta: "+6 this week", tone: "good" },
+      { label: "Critical Risks", value: "14", delta: "3 require immediate action", tone: "risk" },
+      { label: "Monthly Waste", value: "$18,420", delta: "$6,200 recoverable", tone: "warn" },
+      { label: "Attack Surface", value: "39", delta: "-12 from last scan", tone: "accent" }
+    ];
+
+    const metricCards = document.getElementById("metricCards");
+    metrics.forEach(m => {
+      const el = document.createElement("div");
+      el.className = "rounded-2xl border border-line bg-panel2 p-5 shadow-card";
+      el.innerHTML = `<p class='text-sm text-muted'>${m.label}</p>
+                      <p class='mt-2 text-3xl font-bold'>${m.value}</p>
+                      <p class='mt-2 text-xs ${m.tone === "risk" ? "text-risk" : m.tone === "warn" ? "text-warn" : m.tone === "good" ? "text-good" : "text-accent"}'>${m.delta}</p>`;
+      metricCards.appendChild(el);
+    });
+
+    const priorities = [
+      {sev:"CRITICAL", title:"Public S3 bucket allows anonymous read", detail:"Bucket policy includes Principal '*' for GetObject in production account.", impact:"Potential data leak"},
+      {sev:"HIGH", title:"CloudTrail log file validation disabled", detail:"Trail integrity verification is turned off in us-east-1.", impact:"Forensics tampering risk"},
+      {sev:"HIGH", title:"ECR mutable tags enabled for release repos", detail:"Latest tags can be overwritten by compromised CI contexts.", impact:"Supply-chain drift"}
+    ];
+
+    const pWrap = document.getElementById("priorityList");
+    priorities.forEach(p => {
+      const row = document.createElement("div");
+      row.className = "rounded-xl border border-line bg-black/30 p-4";
+      row.innerHTML = `
+        <div class='flex flex-wrap items-center gap-3'>
+          <span class='rounded-full px-2 py-1 text-[11px] font-semibold ${p.sev === "CRITICAL" ? "bg-risk/15 text-risk" : "bg-warn/15 text-warn"}'>${p.sev}</span>
+          <p class='font-medium'>${p.title}</p>
+        </div>
+        <p class='mt-2 text-sm text-muted'>${p.detail}</p>
+        <p class='mt-2 text-xs text-cyan-300'>Impact: ${p.impact}</p>`;
+      pWrap.appendChild(row);
+    });
+
+    const findings = [
+      ["critical", "S3", "Public bucket policy with Principal *", "Production", "us-east-1"],
+      ["high", "IAM", "PassRole to EC2 without condition", "Production", "us-west-2"],
+      ["high", "CloudTrail", "Log file validation disabled", "Staging", "us-east-1"],
+      ["medium", "ECR", "Image tag immutability disabled", "Development", "eu-west-1"],
+      ["critical", "S3", "Versioning disabled on critical bucket", "Production", "us-east-1"],
+    ];
+
+    function sevBadge(s) {
+      return s === "critical"
+        ? "bg-risk/15 text-risk"
+        : s === "high"
+          ? "bg-warn/15 text-warn"
+          : "bg-white/10 text-gray-300";
+    }
+
+    function renderFindings() {
+      const sev = document.getElementById("severityFilter").value;
+      const svc = document.getElementById("serviceFilter").value;
+      const region = document.getElementById("findingRegionFilter").value;
+      const rows = document.getElementById("findingRows");
+      rows.innerHTML = "";
+      findings
+        .filter(f => (sev === "all" || f[0] === sev) && (svc === "all" || f[1] === svc) && (region === "all" || f[4] === region))
+        .forEach(f => {
+          const tr = document.createElement("tr");
+          tr.className = "border-t border-line hover:bg-white/5";
+          tr.innerHTML = `
+            <td class='p-3'><span class='rounded-full px-2 py-1 text-xs ${sevBadge(f[0])}'>${f[0].toUpperCase()}</span></td>
+            <td class='p-3'>${f[1]}</td>
+            <td class='p-3'>${f[2]}</td>
+            <td class='p-3 text-muted'>${f[3]}</td>
+            <td class='p-3 text-muted font-mono text-xs'>${f[4]}</td>
+            <td class='p-3'><button class='rounded-md border border-line px-2 py-1 text-xs hover:bg-white/10'>View</button></td>`;
+          rows.appendChild(tr);
+        });
+    }
+
+    document.getElementById("severityFilter").addEventListener("change", renderFindings);
+    document.getElementById("serviceFilter").addEventListener("change", renderFindings);
+    document.getElementById("findingRegionFilter").addEventListener("change", renderFindings);
+    renderFindings();
+
+    const accountData = [
+      {name:"Production", id:"123456789012", score:82, findings:21, status:"Connected"},
+      {name:"Staging", id:"234567890123", score:74, findings:13, status:"Connected"},
+      {name:"Development", id:"345678901234", score:69, findings:17, status:"Connected"}
+    ];
+
+    function renderAccounts() {
+      const wrap = document.getElementById("accountCards");
+      wrap.innerHTML = "";
+      accountData.forEach(a => {
+        const card = document.createElement("div");
+        card.className = "rounded-2xl border border-line bg-panel2 p-5 shadow-card";
+        card.innerHTML = `
+          <div class='mb-4 flex items-center justify-between'>
+            <h3 class='text-lg font-semibold'>${a.name}</h3>
+            <span class='rounded-full bg-good/15 px-2 py-1 text-xs text-good'>${a.status}</span>
+          </div>
+          <p class='font-mono text-xs text-muted'>${a.id}</p>
+          <div class='mt-4 grid grid-cols-2 gap-3 text-sm'>
+            <div class='rounded-lg bg-black/30 p-3'><p class='text-muted'>Score</p><p class='mt-1 text-xl font-bold'>${a.score}</p></div>
+            <div class='rounded-lg bg-black/30 p-3'><p class='text-muted'>Findings</p><p class='mt-1 text-xl font-bold'>${a.findings}</p></div>
+          </div>
+          <button class='mt-4 w-full rounded-lg border border-line py-2 text-sm hover:bg-white/5'>Open Details</button>`;
+        wrap.appendChild(card);
+      });
+    }
+
+    document.getElementById("mockAddAccount").addEventListener("click", () => {
+      const n = accountData.length + 1;
+      accountData.push({
+        name: `Sandbox-${n}`,
+        id: `${Math.floor(Math.random()*900000000000)+100000000000}`,
+        score: Math.floor(Math.random()*25)+60,
+        findings: Math.floor(Math.random()*15)+4,
+        status: "Connected"
+      });
+      renderAccounts();
+    });
+    renderAccounts();
+
+    const costActions = [
+      "Delete 17 unattached EBS volumes after security tag verification",
+      "Downsize 6 idle RDS instances with backup retention preserved",
+      "Migrate 12 gp2 volumes to gp3 without performance impact",
+      "Disable 3 orphan NAT gateways after route dependency check"
+    ];
+    const costList = document.getElementById("costActions");
+    costActions.forEach(c => {
+      const li = document.createElement("li");
+      li.className = "rounded-xl border border-line bg-black/30 p-3 text-sm";
+      li.textContent = c;
+      costList.appendChild(li);
+    });
+
+    const insightItems = [
+      {title:"Kill Chain Blocker", note:"Enable CloudTrail validation + Forensics-Isolation SG in all regions.", score:"Priority 97"},
+      {title:"Ransomware Recovery", note:"Object Lock + versioning not enabled on 4 critical data buckets.", score:"Priority 94"},
+      {title:"Privilege Escalation Path", note:"iam:PassRole to EC2/ECS found for 2 CI users without constraints.", score:"Priority 92"},
+      {title:"Fastest Savings", note:"4 low-risk actions can save $5,880/month with no security regression.", score:"Priority 88"}
+    ];
+    const iWrap = document.getElementById("insightCards");
+    insightItems.forEach(i => {
+      const card = document.createElement("article");
+      card.className = "rounded-2xl border border-line bg-panel2 p-5 shadow-card";
+      card.innerHTML = `<p class='text-xs uppercase tracking-[.2em] text-cyan-300'>${i.score}</p>
+                        <h3 class='mt-2 text-lg font-semibold'>${i.title}</h3>
+                        <p class='mt-2 text-sm text-muted'>${i.note}</p>
+                        <button class='mt-4 rounded-lg border border-line px-3 py-2 text-sm hover:bg-white/5'>Investigate</button>`;
+      iWrap.appendChild(card);
+    });
+
+    const chartDefaults = {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: "#d1d5db" } }
+      },
+      scales: {
+        x: { ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.08)" } },
+        y: { ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.08)" } }
+      }
+    };
+
+    let securityTrendChart;
+    let costTrendChart;
+    let wasteByServiceChart;
+    let regionScansChart;
+    let regionalVulnChart;
+
+    const regionBaseData = {
+      all: {
+        scans: [118, 92, 76],
+        critical: [11, 8, 6],
+        high: [27, 20, 16],
+        low: [64, 49, 38]
+      },
+      production: {
+        scans: [71, 56, 48],
+        critical: [8, 6, 4],
+        high: [16, 13, 10],
+        low: [33, 25, 19]
+      },
+      staging: {
+        scans: [31, 24, 18],
+        critical: [2, 2, 1],
+        high: [7, 5, 4],
+        low: [20, 16, 12]
+      },
+      development: {
+        scans: [16, 12, 10],
+        critical: [1, 1, 1],
+        high: [4, 3, 2],
+        low: [11, 8, 7]
+      }
+    };
+
+    function getAccountKey() {
+      const accountText = document.getElementById("accountFilter").value.toLowerCase();
+      if (accountText.startsWith("production")) return "production";
+      if (accountText.startsWith("staging")) return "staging";
+      if (accountText.startsWith("development")) return "development";
+      return "all";
+    }
+
+    function getWindowMultiplier() {
+      const v = document.getElementById("regionWindowFilter").value;
+      if (v === "7") return 0.35;
+      if (v === "90") return 1.65;
+      return 1;
+    }
+
+    function scaleSeries(series, multiplier) {
+      return series.map(n => Math.max(1, Math.round(n * multiplier)));
+    }
+
+    function updateRegionalCharts() {
+      if (!regionScansChart || !regionalVulnChart) return;
+      const accountKey = getAccountKey();
+      const severitySet = document.getElementById("vulnSeveritySetFilter").value;
+      const multiplier = getWindowMultiplier();
+      const base = regionBaseData[accountKey];
+
+      regionScansChart.data.datasets[0].data = scaleSeries(base.scans, multiplier);
+      regionScansChart.update();
+
+      regionalVulnChart.data.datasets[0].data = scaleSeries(base.critical, multiplier);
+      regionalVulnChart.data.datasets[1].data = scaleSeries(base.high, multiplier);
+      regionalVulnChart.data.datasets[2].data = scaleSeries(base.low, multiplier);
+      regionalVulnChart.data.datasets[2].hidden = severitySet === "ch";
+      regionalVulnChart.update();
+    }
+
+    function initCharts() {
+      if (typeof Chart === "undefined") {
+        console.warn("Chart.js not loaded; showing mock without charts.");
+        return;
+      }
+
+      securityTrendChart = new Chart(document.getElementById("securityTrend"), {
+        type: "line",
+        data: {
+          labels: ["W1", "W2", "W3", "W4", "W5", "W6"],
+          datasets: [{
+            label: "Risk Count",
+            data: [81, 74, 66, 61, 54, 47],
+            borderColor: "#06b6d4",
+            backgroundColor: "rgba(6,182,212,0.2)",
+            tension: 0.35,
+            fill: true
+          }]
+        },
+        options: chartDefaults
+      });
+
+      costTrendChart = new Chart(document.getElementById("costTrend"), {
+        type: "bar",
+        data: {
+          labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+          datasets: [{
+            label: "Spend ($k)",
+            data: [148, 154, 162, 157, 145, 133],
+            backgroundColor: ["#334155", "#334155", "#334155", "#334155", "#334155", "#22c55e"]
+          }]
+        },
+        options: chartDefaults
+      });
+
+      wasteByServiceChart = new Chart(document.getElementById("wasteByService"), {
+        type: "doughnut",
+        data: {
+          labels: ["EC2", "RDS", "EBS", "NAT", "Data Transfer"],
+          datasets: [{
+            data: [34, 24, 17, 14, 11],
+            backgroundColor: ["#06b6d4", "#22c55e", "#f59e0b", "#ef4444", "#64748b"],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: "bottom", labels: { color: "#d1d5db" } } }
+        }
+      });
+
+      regionScansChart = new Chart(document.getElementById("regionScansChart"), {
+        type: "bar",
+        data: {
+          labels: ["us-east-1", "us-west-2", "eu-west-1"],
+          datasets: [{
+            label: "Scans",
+            data: [118, 92, 76],
+            backgroundColor: "#06b6d4"
+          }]
+        },
+        options: chartDefaults
+      });
+
+      regionalVulnChart = new Chart(document.getElementById("regionalVulnChart"), {
+        type: "bar",
+        data: {
+          labels: ["us-east-1", "us-west-2", "eu-west-1"],
+          datasets: [
+            { label: "Critical", data: [11, 8, 6], backgroundColor: "#ef4444" },
+            { label: "High", data: [27, 20, 16], backgroundColor: "#f59e0b" },
+            { label: "Low", data: [64, 49, 38], backgroundColor: "#22c55e" }
+          ]
+        },
+        options: chartDefaults
+      });
+
+      updateRegionalCharts();
+    }
+
+    const scanToast = document.getElementById("scanToast");
+    const scanPct = document.getElementById("scanPct");
+    const scanBar = document.getElementById("scanBar");
+    const scanMsg = document.getElementById("scanMsg");
+    document.getElementById("runScanBtn").addEventListener("click", () => {
+      scanToast.classList.remove("hidden");
+      let pct = 0;
+      const steps = ["Collecting account inventory...", "Evaluating IAM trust policies...", "Running S3 ransomware checks...", "Correlating risk and cost signals...", "Finalizing report..."];
+      const t = setInterval(() => {
+        pct += Math.floor(Math.random() * 18) + 7;
+        if (pct >= 100) pct = 100;
+        scanPct.textContent = `${pct}%`;
+        scanBar.style.width = `${pct}%`;
+        scanMsg.textContent = steps[Math.min(Math.floor(pct / 22), steps.length - 1)];
+        if (pct === 100) {
+          clearInterval(t);
+          scanMsg.innerHTML = "Scan complete. <span class='text-good'>14 critical findings</span> and <span class='text-accent'>$6.2k savings identified</span>.";
+          setTimeout(() => scanToast.classList.add("hidden"), 2600);
+        }
+      }, 420);
+    });
+
+    ["accountFilter", "regionFilter"].forEach(id => {
+      document.getElementById(id).addEventListener("change", () => {
+        const jitter = v => v + Math.floor(Math.random() * 4) - 2;
+        document.querySelectorAll("#metricCards .text-3xl").forEach((el, i) => {
+          if (i === 1) el.textContent = String(Math.max(8, jitter(14)));
+          if (i === 2) el.textContent = `$${Math.max(12000, jitter(18420)).toLocaleString()}`;
+        });
+        updateRegionalCharts();
+      });
+    });
+    document.getElementById("regionWindowFilter").addEventListener("change", updateRegionalCharts);
+    document.getElementById("vulnSeveritySetFilter").addEventListener("change", updateRegionalCharts);
+
+    initCharts();
+  </script>
+</body>
+</html>

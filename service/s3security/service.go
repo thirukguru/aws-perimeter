@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -122,6 +123,8 @@ func (s *service) GetPublicBuckets(ctx context.Context) ([]BucketRisk, error) {
 				publicAccessBlock.RestrictPublicBuckets
 		}
 
+		bucketName := aws.ToString(bucket.Name)
+
 		// Check bucket ACL for public access
 		acl, err := s.client.GetBucketAcl(ctx, &s3.GetBucketAclInput{
 			Bucket: bucket.Name,
@@ -148,7 +151,7 @@ func (s *service) GetPublicBuckets(ctx context.Context) ([]BucketRisk, error) {
 			}
 
 			risks = append(risks, BucketRisk{
-				BucketName:        *bucket.Name,
+				BucketName:        bucketName,
 				RiskType:          "PUBLIC_ACCESS_NOT_BLOCKED",
 				Severity:          severity,
 				Description:       "Public access block is not fully enabled",
@@ -159,11 +162,49 @@ func (s *service) GetPublicBuckets(ctx context.Context) ([]BucketRisk, error) {
 
 		if hasPublicACL {
 			risks = append(risks, BucketRisk{
-				BucketName:     *bucket.Name,
+				BucketName:     bucketName,
 				RiskType:       "PUBLIC_ACL",
 				Severity:       SeverityCritical,
 				Description:    "Bucket has public ACL grants",
 				Recommendation: "Remove public ACL grants and use bucket policies instead",
+			})
+		}
+
+		policyOut, err := s.client.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{
+			Bucket: bucket.Name,
+		})
+		if err == nil && policyOut.Policy != nil && policyAllowsPublicReadOrWrite(*policyOut.Policy) {
+			risks = append(risks, BucketRisk{
+				BucketName:     bucketName,
+				RiskType:       "PUBLIC_BUCKET_POLICY_WILDCARD",
+				Severity:       SeverityCritical,
+				Description:    "Bucket policy allows public read/write access via wildcard principal",
+				Recommendation: "Remove wildcard principals and restrict read/write actions to approved identities",
+			})
+		}
+
+		tags := s.getBucketTags(ctx, bucketName)
+		if isCriticalBucket(bucketName, tags) {
+			versioningEnabled, objectLockEnabled := s.getVersioningAndObjectLockStatus(ctx, bucketName)
+			if !versioningEnabled || !objectLockEnabled {
+				risks = append(risks, BucketRisk{
+					BucketName:  bucketName,
+					RiskType:    "CRITICAL_BUCKET_VERSIONING_OBJECT_LOCK_DISABLED",
+					Severity:    SeverityCritical,
+					Description: "Critical bucket does not have both versioning and Object Lock enabled",
+					Recommendation: "Enable bucket versioning and Object Lock on critical buckets to support ransomware recovery and tamper resistance",
+				})
+			}
+		}
+
+		loggingEnabled := s.hasAccessLoggingEnabled(ctx, bucketName)
+		if !loggingEnabled {
+			risks = append(risks, BucketRisk{
+				BucketName:     bucketName,
+				RiskType:       "S3_ACCESS_LOGGING_DISABLED",
+				Severity:       SeverityMedium,
+				Description:    "Server access logging is not enabled for bucket",
+				Recommendation: "Enable S3 server access logging to support forensic visibility and detection",
 			})
 		}
 	}
@@ -197,17 +238,14 @@ func (s *service) GetUnencryptedBuckets(ctx context.Context) ([]BucketEncryption
 			continue
 		}
 
-		if enc.ServerSideEncryptionConfiguration != nil {
-			for _, rule := range enc.ServerSideEncryptionConfiguration.Rules {
-				if rule.ApplyServerSideEncryptionByDefault != nil {
-					algo := rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm
-					if algo == types.ServerSideEncryptionAes256 {
-						// SSE-S3 is fine, skip
-						continue
-					}
-					// KMS is also fine
-				}
-			}
+		if !encryptionEnforced(enc.ServerSideEncryptionConfiguration) {
+			unencrypted = append(unencrypted, BucketEncryption{
+				BucketName:     aws.ToString(bucket.Name),
+				IsEncrypted:    false,
+				EncryptionType: "None",
+				Severity:       SeverityMedium,
+				Recommendation: "Enable default encryption with SSE-S3 or SSE-KMS",
+			})
 		}
 	}
 
@@ -322,6 +360,164 @@ func normalizeToSlice(v interface{}) []string {
 		return result
 	}
 	return nil
+}
+
+func policyAllowsPublicReadOrWrite(policyText string) bool {
+	statements := parsePolicyStatements(policyText)
+	for _, stmt := range statements {
+		if !strings.EqualFold(stmt.Effect, "Allow") {
+			continue
+		}
+		if !principalContainsWildcard(stmt.Principal) {
+			continue
+		}
+		if statementAllowsPublicReadOrWrite(stmt.Action) {
+			return true
+		}
+	}
+	return false
+}
+
+func parsePolicyStatements(policyText string) []struct {
+	Effect    string      `json:"Effect"`
+	Principal interface{} `json:"Principal"`
+	Action    interface{} `json:"Action"`
+	Resource  interface{} `json:"Resource"`
+} {
+	var policyDoc struct {
+		Statement []struct {
+			Effect    string      `json:"Effect"`
+			Principal interface{} `json:"Principal"`
+			Action    interface{} `json:"Action"`
+			Resource  interface{} `json:"Resource"`
+		} `json:"Statement"`
+	}
+	if err := json.Unmarshal([]byte(policyText), &policyDoc); err != nil {
+		return nil
+	}
+	return policyDoc.Statement
+}
+
+func statementAllowsPublicReadOrWrite(action interface{}) bool {
+	for _, a := range normalizeToSlice(action) {
+		x := strings.ToLower(strings.TrimSpace(a))
+		switch x {
+		case "*", "s3:*", "s3:getobject", "s3:putobject", "s3:deleteobject":
+			return true
+		}
+	}
+	return false
+}
+
+func principalContainsWildcard(v interface{}) bool {
+	switch p := v.(type) {
+	case string:
+		return strings.TrimSpace(p) == "*"
+	case []interface{}:
+		for _, item := range p {
+			if principalContainsWildcard(item) {
+				return true
+			}
+		}
+	case map[string]interface{}:
+		for _, inner := range p {
+			if principalContainsWildcard(inner) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *service) getBucketTags(ctx context.Context, bucketName string) map[string]string {
+	out, err := s.client.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{
+		Bucket: aws.String(bucketName),
+	})
+	if err != nil {
+		return nil
+	}
+	tags := make(map[string]string, len(out.TagSet))
+	for _, t := range out.TagSet {
+		k := strings.TrimSpace(aws.ToString(t.Key))
+		if k == "" {
+			continue
+		}
+		tags[strings.ToLower(k)] = strings.ToLower(strings.TrimSpace(aws.ToString(t.Value)))
+	}
+	return tags
+}
+
+func isCriticalBucket(bucketName string, tags map[string]string) bool {
+	name := strings.ToLower(strings.TrimSpace(bucketName))
+	criticalNameTokens := []string{
+		"prod", "production", "critical", "backup", "finance", "payment", "payroll",
+		"pii", "phi", "hipaa", "pci", "customer-data", "audit", "forensic",
+	}
+	for _, token := range criticalNameTokens {
+		if strings.Contains(name, token) {
+			return true
+		}
+	}
+	if len(tags) == 0 {
+		return false
+	}
+	criticalTagValues := []string{"critical", "high", "prod", "production", "confidential", "restricted", "pci", "hipaa"}
+	criticalTagKeys := []string{"critical", "classification", "data-classification", "data_sensitivity", "tier", "environment"}
+	for _, key := range criticalTagKeys {
+		v, ok := tags[key]
+		if !ok {
+			continue
+		}
+		if slices.Contains(criticalTagValues, v) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *service) getVersioningAndObjectLockStatus(ctx context.Context, bucketName string) (versioningEnabled bool, objectLockEnabled bool) {
+	versioningOut, err := s.client.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
+		Bucket: aws.String(bucketName),
+	})
+	if err == nil && versioningOut.Status == types.BucketVersioningStatusEnabled {
+		versioningEnabled = true
+	}
+
+	lockOut, err := s.client.GetObjectLockConfiguration(ctx, &s3.GetObjectLockConfigurationInput{
+		Bucket: aws.String(bucketName),
+	})
+	if err == nil && lockOut.ObjectLockConfiguration != nil &&
+		lockOut.ObjectLockConfiguration.ObjectLockEnabled == types.ObjectLockEnabledEnabled {
+		objectLockEnabled = true
+	}
+
+	return versioningEnabled, objectLockEnabled
+}
+
+func (s *service) hasAccessLoggingEnabled(ctx context.Context, bucketName string) bool {
+	out, err := s.client.GetBucketLogging(ctx, &s3.GetBucketLoggingInput{
+		Bucket: aws.String(bucketName),
+	})
+	if err != nil {
+		return false
+	}
+	return out.LoggingEnabled != nil && strings.TrimSpace(aws.ToString(out.LoggingEnabled.TargetBucket)) != ""
+}
+
+func encryptionEnforced(cfg *types.ServerSideEncryptionConfiguration) bool {
+	if cfg == nil || len(cfg.Rules) == 0 {
+		return false
+	}
+	for _, rule := range cfg.Rules {
+		if rule.ApplyServerSideEncryptionByDefault == nil {
+			continue
+		}
+		algo := rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm
+		if algo == types.ServerSideEncryptionAes256 || algo == types.ServerSideEncryptionAwsKms || algo == types.ServerSideEncryptionAwsKmsDsse {
+			return true
+		}
+	}
+	return false
 }
 
 // Sensitive file patterns (EmeraldWhale campaign patterns)

@@ -86,6 +86,15 @@ type AZDistribution struct {
 	Recommendation string
 }
 
+// FoundationalNetworkRisk represents baseline VPC network hardening gaps.
+type FoundationalNetworkRisk struct {
+	RiskType       string
+	ResourceID     string
+	Severity       string
+	Description    string
+	Recommendation string
+}
+
 type service struct {
 	client *ec2.Client
 }
@@ -97,6 +106,7 @@ type Service interface {
 	GetBastionHosts(ctx context.Context) ([]BastionHost, error)
 	GetSubnetClassification(ctx context.Context) ([]SubnetClassification, error)
 	GetAZDistribution(ctx context.Context) ([]AZDistribution, error)
+	GetFoundationalNetworkRisks(ctx context.Context) ([]FoundationalNetworkRisk, error)
 }
 
 // NewService creates a new advanced VPC service
@@ -474,6 +484,75 @@ func (s *service) GetAZDistribution(ctx context.Context) ([]AZDistribution, erro
 	return distributions, nil
 }
 
+// GetFoundationalNetworkRisks evaluates foundational VPC hardening controls:
+// default VPC isolation and unrestricted IGW routes.
+func (s *service) GetFoundationalNetworkRisks(ctx context.Context) ([]FoundationalNetworkRisk, error) {
+	var risks []FoundationalNetworkRisk
+
+	vpcsOut, err := s.client.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	igwByVPC := map[string]bool{}
+	igwOut, err := s.client.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{})
+	if err == nil {
+		for _, igw := range igwOut.InternetGateways {
+			for _, att := range igw.Attachments {
+				vpcID := aws.ToString(att.VpcId)
+				if vpcID != "" {
+					igwByVPC[vpcID] = true
+				}
+			}
+		}
+	}
+
+	routeTablesOut, err := s.client.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	igwRoutePerVPC := map[string]bool{}
+	seenRT := map[string]bool{}
+	for _, rt := range routeTablesOut.RouteTables {
+		rtID := aws.ToString(rt.RouteTableId)
+		vpcID := aws.ToString(rt.VpcId)
+		for _, route := range rt.Routes {
+			if isInternetRouteViaIGW(route) {
+				igwRoutePerVPC[vpcID] = true
+				if !seenRT[rtID] {
+					seenRT[rtID] = true
+					risks = append(risks, FoundationalNetworkRisk{
+						RiskType:       "InternetGatewayUnrestrictedRoute",
+						ResourceID:     rtID,
+						Severity:       SeverityHigh,
+						Description:    "Route table has unrestricted internet route (0.0.0.0/0 or ::/0) via Internet Gateway",
+						Recommendation: "Restrict internet routes to only required subnets and use private/NAT designs for internal workloads",
+					})
+				}
+			}
+		}
+	}
+
+	for _, vpc := range vpcsOut.Vpcs {
+		if !aws.ToBool(vpc.IsDefault) {
+			continue
+		}
+		vpcID := aws.ToString(vpc.VpcId)
+		if igwByVPC[vpcID] || igwRoutePerVPC[vpcID] {
+			risks = append(risks, FoundationalNetworkRisk{
+				RiskType:       "DefaultVPCNotIsolated",
+				ResourceID:     vpcID,
+				Severity:       SeverityMedium,
+				Description:    "Default VPC exists and is not isolated (has IGW attachment and/or unrestricted internet route)",
+				Recommendation: "Delete unused default VPCs, or isolate them by removing internet gateways/routes and enforcing strict controls",
+			})
+		}
+	}
+
+	return risks, nil
+}
+
 // Helper functions
 func getInstanceName(tags []types.Tag) string {
 	for _, tag := range tags {
@@ -524,4 +603,14 @@ func cidrsOverlap(cidr1, cidr2 string) bool {
 	}
 
 	return false
+}
+
+func isInternetRouteViaIGW(route types.Route) bool {
+	gwID := aws.ToString(route.GatewayId)
+	if !strings.HasPrefix(gwID, "igw-") {
+		return false
+	}
+	hasIPv4Default := aws.ToString(route.DestinationCidrBlock) == "0.0.0.0/0"
+	hasIPv6Default := aws.ToString(route.DestinationIpv6CidrBlock) == "::/0"
+	return hasIPv4Default || hasIPv6Default
 }

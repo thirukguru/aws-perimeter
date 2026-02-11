@@ -14,6 +14,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/cachesecurity"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrail"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
+	"github.com/thirukguru/aws-perimeter/service/cognitosecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
 	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
@@ -73,6 +74,7 @@ func NewService(
 	eventSecurityService eventsecurity.Service,
 	cacheSecurityService cachesecurity.Service,
 	redshiftSecService redshiftsecurity.Service,
+	cognitoSecService cognitosecurity.Service,
 	cloudtrailSecService cloudtrailsecurity.Service,
 	configService config.Service,
 	dataprotectionSvc dataprotection.Service,
@@ -112,6 +114,7 @@ func NewService(
 		eventSecurityService: eventSecurityService,
 		cacheSecurityService: cacheSecurityService,
 		redshiftSecService:   redshiftSecService,
+		cognitoSecService:    cognitoSecService,
 		cloudtrailSecService: cloudtrailSecService,
 		configService:        configService,
 		dataprotectionSvc:    dataprotectionSvc,
@@ -232,6 +235,7 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		eventWorkflowRisks []eventsecurity.EventWorkflowRisk
 		cacheSecRisks      []cachesecurity.CacheSecurityRisk
 		redshiftSecRisks   []redshiftsecurity.RedshiftRisk
+		cognitoSecRisks    []cognitosecurity.CognitoRisk
 		orgGuardrailRisks  []governance.OrgGuardrailRisk
 		lambdaPolicyRisks  []resourcepolicy.ResourcePolicyRisk
 		sqsPolicyRisks     []resourcepolicy.ResourcePolicyRisk
@@ -267,9 +271,10 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		natStatus        *vpcendpoints.NATGatewayStatus
 		missingEndpoints []vpcendpoints.MissingEndpoint
 		// VPC Advanced
-		peeringRisks []vpcadvanced.VPCPeeringRisk
-		bastionHosts []vpcadvanced.BastionHost
-		subnetClass  []vpcadvanced.SubnetClassification
+		peeringRisks             []vpcadvanced.VPCPeeringRisk
+		bastionHosts             []vpcadvanced.BastionHost
+		subnetClass              []vpcadvanced.SubnetClassification
+		foundationalNetworkRisks []vpcadvanced.FoundationalNetworkRisk
 		// IAM Advanced
 		roleChainRisks   []iamadvanced.RoleChainRisk
 		externalIDRisks  []iamadvanced.ExternalIDRisk
@@ -505,6 +510,13 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 	})
 	g.Go(func() error {
 		var err error
+		if s.cognitoSecService != nil {
+			cognitoSecRisks, err = s.cognitoSecService.GetCognitoSecurityRisks(groupCtx)
+		}
+		return err
+	})
+	g.Go(func() error {
+		var err error
 		if s.governanceService != nil {
 			orgGuardrailRisks, err = s.governanceService.GetOrgSCPExpansionRisks(groupCtx)
 		}
@@ -657,6 +669,11 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		subnetClass, err = s.vpcAdvancedService.GetSubnetClassification(groupCtx)
 		return err
 	})
+	g.Go(func() error {
+		var err error
+		foundationalNetworkRisks, err = s.vpcAdvancedService.GetFoundationalNetworkRisks(groupCtx)
+		return err
+	})
 
 	// IAM Advanced
 	g.Go(func() error {
@@ -761,27 +778,29 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		ECRSecrets:    ecrSecrets,
 	}
 	advInput := model.RenderAdvancedInput{
-		AccountID:              *stsResult.Account,
-		Region:                 flags.Region,
-		HubStatus:              hubStatus,
-		HubStandards:           hubStandards,
-		HubFindings:            hubFindings,
-		GuardDutyStatus:        gdStatus,
-		GuardDutyFindings:      gdFindings,
-		APINoRateLimits:        apiNoRateLimits,
-		APINoAuth:              apiNoAuth,
-		APIRisks:               apiRisks,
-		MessagingSecurityRisks: messagingSecRisks,
-		ECRSecurityRisks:       ecrSecRisks,
-		BackupRisks:            backupRisks,
-		OrgGuardrailRisks:      orgGuardrailRisks,
-		LambdaConfigRisks:      lambdaConfigRisks,
-		EventWorkflowRisks:     eventWorkflowRisks,
-		CacheSecurityRisks:     cacheSecRisks,
-		RedshiftSecurityRisks:  redshiftSecRisks,
-		LambdaPolicyRisks:      lambdaPolicyRisks,
-		SQSPolicyRisks:         sqsPolicyRisks,
-		SNSPolicyRisks:         snsPolicyRisks,
+		AccountID:                *stsResult.Account,
+		Region:                   flags.Region,
+		HubStatus:                hubStatus,
+		HubStandards:             hubStandards,
+		HubFindings:              hubFindings,
+		GuardDutyStatus:          gdStatus,
+		GuardDutyFindings:        gdFindings,
+		APINoRateLimits:          apiNoRateLimits,
+		APINoAuth:                apiNoAuth,
+		APIRisks:                 apiRisks,
+		MessagingSecurityRisks:   messagingSecRisks,
+		ECRSecurityRisks:         ecrSecRisks,
+		BackupRisks:              backupRisks,
+		OrgGuardrailRisks:        orgGuardrailRisks,
+		LambdaConfigRisks:        lambdaConfigRisks,
+		EventWorkflowRisks:       eventWorkflowRisks,
+		CacheSecurityRisks:       cacheSecRisks,
+		RedshiftSecurityRisks:    redshiftSecRisks,
+		CognitoSecurityRisks:     cognitoSecRisks,
+		FoundationalNetworkRisks: foundationalNetworkRisks,
+		LambdaPolicyRisks:        lambdaPolicyRisks,
+		SQSPolicyRisks:           sqsPolicyRisks,
+		SNSPolicyRisks:           snsPolicyRisks,
 	}
 	extInput := extratables.ExtendedSecurityInput{
 		AccountID:         *stsResult.Account,
@@ -971,20 +990,20 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		s3Findings := []htmloutput.Finding{}
 		for _, bucket := range publicBuckets {
 			s3Findings = append(s3Findings, htmloutput.Finding{
-				Severity: bucket.Severity, Title: "Public S3 Bucket",
+				Severity: bucket.Severity, Title: "S3: " + bucket.RiskType,
 				Resource: bucket.BucketName, Description: bucket.Description,
 			})
 		}
 		for _, bucket := range unencryptedBkts {
 			s3Findings = append(s3Findings, htmloutput.Finding{
-				Severity: bucket.Severity, Title: "Unencrypted S3 Bucket",
+				Severity: bucket.Severity, Title: "S3: UNENCRYPTED_BUCKET",
 				Resource: bucket.BucketName, Description: "Bucket is not encrypted: " + bucket.EncryptionType,
 			})
 		}
 		for _, policy := range riskyPolicies {
 			if policy.AllowsPublic || policy.AllowsAnyAction {
 				s3Findings = append(s3Findings, htmloutput.Finding{
-					Severity: policy.Severity, Title: "Risky Bucket Policy",
+					Severity: policy.Severity, Title: "S3: RISKY_BUCKET_POLICY",
 					Resource: policy.BucketName, Description: "Bucket policy allows public or any action",
 				})
 			}
@@ -1363,6 +1382,20 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 			extFindings = append(extFindings, htmloutput.Finding{
 				Severity: redshiftRisk.Severity, Title: "Redshift: " + redshiftRisk.RiskType,
 				Resource: redshiftRisk.Resource, Description: redshiftRisk.Description, Recommendation: redshiftRisk.Recommendation,
+			})
+		}
+		// Cognito Security
+		for _, cognitoRisk := range cognitoSecRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: cognitoRisk.Severity, Title: "Cognito: " + cognitoRisk.RiskType,
+				Resource: cognitoRisk.Resource, Description: cognitoRisk.Description, Recommendation: cognitoRisk.Recommendation,
+			})
+		}
+		// VPC Foundational Security
+		for _, networkRisk := range foundationalNetworkRisks {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: networkRisk.Severity, Title: "VPC: " + networkRisk.RiskType,
+				Resource: networkRisk.ResourceID, Description: networkRisk.Description, Recommendation: networkRisk.Recommendation,
 			})
 		}
 		// AI Attack Detection
