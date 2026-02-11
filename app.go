@@ -55,7 +55,7 @@ func run() error {
 		orchestratorService := orchestrator.NewService(
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			outputService, versionInfo,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			nil, nil,
 			nil,
 			nil,

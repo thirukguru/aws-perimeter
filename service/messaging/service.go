@@ -3,11 +3,14 @@ package messaging
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 )
 
 const (
@@ -41,6 +44,16 @@ type SNSAbuseRisk struct {
 	Recommendation  string
 }
 
+// MessagingSecurityRisk represents SNS/SQS security misconfigurations
+type MessagingSecurityRisk struct {
+	Service        string
+	RiskType       string
+	Severity       string
+	Resource       string
+	Description    string
+	Recommendation string
+}
+
 // SendingQuotaStatus represents SES sending quota status
 type SendingQuotaStatus struct {
 	Max24HourSend   float64
@@ -54,6 +67,7 @@ type SendingQuotaStatus struct {
 type service struct {
 	sesClient *ses.Client
 	snsClient *sns.Client
+	sqsClient *sqs.Client
 }
 
 // Service is the interface for SES/SNS abuse detection
@@ -61,6 +75,7 @@ type Service interface {
 	GetSESAbuseRisks(ctx context.Context) ([]SESAbuseRisk, error)
 	GetSNSAbuseRisks(ctx context.Context) ([]SNSAbuseRisk, error)
 	GetSendingQuotaStatus(ctx context.Context) (*SendingQuotaStatus, error)
+	GetMessagingSecurityRisks(ctx context.Context) ([]MessagingSecurityRisk, error)
 }
 
 // NewService creates a new messaging abuse detection service
@@ -68,6 +83,7 @@ func NewService(cfg aws.Config) Service {
 	return &service{
 		sesClient: ses.NewFromConfig(cfg),
 		snsClient: sns.NewFromConfig(cfg),
+		sqsClient: sqs.NewFromConfig(cfg),
 	}
 }
 
@@ -226,6 +242,118 @@ func (s *service) GetSendingQuotaStatus(ctx context.Context) (*SendingQuotaStatu
 	return status, nil
 }
 
+// GetMessagingSecurityRisks checks SNS/SQS security posture
+func (s *service) GetMessagingSecurityRisks(ctx context.Context) ([]MessagingSecurityRisk, error) {
+	var risks []MessagingSecurityRisk
+
+	// SNS checks: public topics, unencrypted topics
+	snsPaginator := sns.NewListTopicsPaginator(s.snsClient, &sns.ListTopicsInput{})
+	for snsPaginator.HasMorePages() {
+		page, err := snsPaginator.NextPage(ctx)
+		if err != nil {
+			break // SNS may be unavailable in this account/region
+		}
+		for _, topic := range page.Topics {
+			topicARN := aws.ToString(topic.TopicArn)
+			attrs, err := s.snsClient.GetTopicAttributes(ctx, &sns.GetTopicAttributesInput{
+				TopicArn: topic.TopicArn,
+			})
+			if err != nil {
+				continue
+			}
+
+			policy := attrs.Attributes["Policy"]
+			if isPublicPolicy(policy) {
+				risks = append(risks, MessagingSecurityRisk{
+					Service:        "SNS",
+					RiskType:       "PublicSNSTopic",
+					Severity:       SeverityHigh,
+					Resource:       topicARN,
+					Description:    "SNS topic policy allows public principal (*)",
+					Recommendation: "Restrict topic policy to specific principals and conditions",
+				})
+			}
+
+			if strings.TrimSpace(attrs.Attributes["KmsMasterKeyId"]) == "" {
+				risks = append(risks, MessagingSecurityRisk{
+					Service:        "SNS",
+					RiskType:       "UnencryptedSNS",
+					Severity:       SeverityMedium,
+					Resource:       topicARN,
+					Description:    "SNS topic is not encrypted with KMS",
+					Recommendation: "Enable SNS server-side encryption using a KMS key",
+				})
+			}
+		}
+	}
+
+	// SQS checks: public queues, unencrypted queues, missing DLQ
+	sqsPaginator := sqs.NewListQueuesPaginator(s.sqsClient, &sqs.ListQueuesInput{})
+	for sqsPaginator.HasMorePages() {
+		page, err := sqsPaginator.NextPage(ctx)
+		if err != nil {
+			break // SQS may be unavailable in this account/region
+		}
+		for _, queueURL := range page.QueueUrls {
+			attrs, err := s.sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+				QueueUrl: aws.String(queueURL),
+				AttributeNames: []sqstypes.QueueAttributeName{
+					sqstypes.QueueAttributeNameQueueArn,
+					sqstypes.QueueAttributeNamePolicy,
+					sqstypes.QueueAttributeNameKmsMasterKeyId,
+					sqstypes.QueueAttributeNameSqsManagedSseEnabled,
+					sqstypes.QueueAttributeNameRedrivePolicy,
+				},
+			})
+			if err != nil {
+				continue
+			}
+
+			queueARN := attrs.Attributes["QueueArn"]
+			if queueARN == "" {
+				queueARN = queueURL
+			}
+
+			if isPublicPolicy(attrs.Attributes["Policy"]) {
+				risks = append(risks, MessagingSecurityRisk{
+					Service:        "SQS",
+					RiskType:       "PublicSQSQueue",
+					Severity:       SeverityHigh,
+					Resource:       queueARN,
+					Description:    "SQS queue policy allows public principal (*)",
+					Recommendation: "Restrict queue policy to specific principals and source conditions",
+				})
+			}
+
+			kmsKeyID := strings.TrimSpace(attrs.Attributes["KmsMasterKeyId"])
+			sseManaged := strings.EqualFold(strings.TrimSpace(attrs.Attributes["SqsManagedSseEnabled"]), "true")
+			if kmsKeyID == "" && !sseManaged {
+				risks = append(risks, MessagingSecurityRisk{
+					Service:        "SQS",
+					RiskType:       "UnencryptedSQS",
+					Severity:       SeverityMedium,
+					Resource:       queueARN,
+					Description:    "SQS queue does not have server-side encryption enabled",
+					Recommendation: "Enable SSE-SQS or SSE-KMS for the queue",
+				})
+			}
+
+			if strings.TrimSpace(attrs.Attributes["RedrivePolicy"]) == "" {
+				risks = append(risks, MessagingSecurityRisk{
+					Service:        "SQS",
+					RiskType:       "MissingSQSDeadLetterQueue",
+					Severity:       SeverityMedium,
+					Resource:       queueARN,
+					Description:    "SQS queue has no dead-letter queue configured",
+					Recommendation: "Configure a dead-letter queue to retain failed messages",
+				})
+			}
+		}
+	}
+
+	return risks, nil
+}
+
 func contains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 &&
 		(s == substr || len(s) > len(substr) &&
@@ -250,4 +378,14 @@ func extractTopicName(arn string) string {
 		}
 	}
 	return arn
+}
+
+func isPublicPolicy(policy string) bool {
+	if strings.TrimSpace(policy) == "" {
+		return false
+	}
+	return strings.Contains(policy, "\"Principal\":\"*\"") ||
+		strings.Contains(policy, "\"Principal\": \"*\"") ||
+		strings.Contains(policy, "\"AWS\":\"*\"") ||
+		strings.Contains(policy, "\"AWS\": \"*\"")
 }

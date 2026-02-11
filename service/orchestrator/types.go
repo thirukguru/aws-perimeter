@@ -8,6 +8,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
+	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
 	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
 	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
@@ -54,6 +55,7 @@ type service struct {
 	inspectorService     inspector.Service
 	lambdaSecService     lambdasecurity.Service
 	messagingService     messaging.Service
+	ecrSecService        ecrsecurity.Service
 	cloudtrailSecService cloudtrailsecurity.Service
 	configService        config.Service
 	dataprotectionSvc    dataprotection.Service

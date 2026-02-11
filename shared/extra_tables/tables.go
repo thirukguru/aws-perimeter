@@ -287,6 +287,50 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 		t.Render()
 	}
 
+	// Messaging Security (SNS/SQS)
+	if len(input.MessagingSecurityRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("📨 SNS/SQS Security Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Service", "Risk", "Resource"})
+		for _, r := range input.MessagingSecurityRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.Service,
+				r.RiskType,
+				truncate(r.Resource, 36),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
+	// ECR Security
+	if len(input.ECRSecurityRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🐳 ECR Security Risks"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk", "Repository", "Description"})
+		for _, r := range input.ECRSecurityRisks {
+			repo := r.RepositoryName
+			if repo == "" {
+				repo = r.RepositoryARN
+			}
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.RiskType,
+				truncate(repo, 26),
+				truncate(r.Description, 42),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
 	// Resource-based Policies
 	allPolicyRisks := append(input.LambdaPolicyRisks, input.SQSPolicyRisks...)
 	allPolicyRisks = append(allPolicyRisks, input.SNSPolicyRisks...)
@@ -309,7 +353,8 @@ func DrawAdvancedTable(input model.RenderAdvancedInput) {
 
 	// Summary
 	totalIssues := len(input.HubFindings) + len(input.GuardDutyFindings) +
-		len(input.APINoAuth) + len(input.APINoRateLimits) + len(allPolicyRisks)
+		len(input.APINoAuth) + len(input.APINoRateLimits) + len(allPolicyRisks) +
+		len(input.MessagingSecurityRisks) + len(input.ECRSecurityRisks)
 
 	if totalIssues == 0 &&
 		(input.HubStatus == nil || input.HubStatus.IsEnabled) &&

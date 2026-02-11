@@ -508,6 +508,8 @@ func BuildAdvancedReport(input model.RenderAdvancedInput, generatedAt string) mo
 	output.APIsWithoutRateLimits = input.APINoRateLimits
 	output.APIsWithoutAuth = input.APINoAuth
 	output.ResourcePolicyRisks = allPolicyRisks
+	output.MessagingSecurityRisks = input.MessagingSecurityRisks
+	output.ECRSecurityRisks = input.ECRSecurityRisks
 
 	return output
 }

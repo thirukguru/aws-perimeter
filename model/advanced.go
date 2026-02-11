@@ -2,7 +2,9 @@ package model
 
 import (
 	"github.com/thirukguru/aws-perimeter/service/apigateway"
+	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
 	"github.com/thirukguru/aws-perimeter/service/guardduty"
+	"github.com/thirukguru/aws-perimeter/service/messaging"
 	"github.com/thirukguru/aws-perimeter/service/resourcepolicy"
 	"github.com/thirukguru/aws-perimeter/service/securityhub"
 )
@@ -30,6 +32,12 @@ type RenderAdvancedInput struct {
 	LambdaPolicyRisks []resourcepolicy.ResourcePolicyRisk
 	SQSPolicyRisks    []resourcepolicy.ResourcePolicyRisk
 	SNSPolicyRisks    []resourcepolicy.ResourcePolicyRisk
+
+	// Messaging Security (SNS/SQS)
+	MessagingSecurityRisks []messaging.MessagingSecurityRisk
+
+	// ECR Security
+	ECRSecurityRisks []ecrsecurity.ECRRisk
 }
 
 // AdvancedReportJSON represents the JSON output for advanced security checks
@@ -52,4 +60,10 @@ type AdvancedReportJSON struct {
 
 	// Resource-based Policies
 	ResourcePolicyRisks []resourcepolicy.ResourcePolicyRisk `json:"resource_policy_risks,omitempty"`
+
+	// Messaging Security (SNS/SQS)
+	MessagingSecurityRisks []messaging.MessagingSecurityRisk `json:"messaging_security_risks,omitempty"`
+
+	// ECR Security
+	ECRSecurityRisks []ecrsecurity.ECRRisk `json:"ecr_security_risks,omitempty"`
 }

@@ -3,6 +3,9 @@ package aidetection
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -136,28 +139,82 @@ func (s *service) GetAIRisks(ctx context.Context) ([]AIRisk, error) {
 	var risks []AIRisk
 
 	// 1. Check for GPU instances (LLMjacking/mining targets)
-	gpuRisks, _ := s.checkGPUInstances(ctx)
+	gpuRisks, err := s.checkGPUInstances(ctx)
 	risks = append(risks, gpuRisks...)
+	if err != nil {
+		risks = append(risks, AIRisk{
+			RiskType:       "AIDetectionError",
+			Severity:       SeverityLow,
+			Resource:       "EC2/" + s.region,
+			Description:    "AI detection partial failure: GPU instance checks could not run",
+			Recommendation: "Verify EC2 permissions and retry scan",
+		})
+	}
 
 	// 2. Check Bedrock configuration
-	bedrockRisks, _ := s.checkBedrockConfig(ctx)
+	bedrockRisks, err := s.checkBedrockConfig(ctx)
 	risks = append(risks, bedrockRisks...)
+	if err != nil {
+		risks = append(risks, AIRisk{
+			RiskType:       "AIDetectionError",
+			Severity:       SeverityLow,
+			Resource:       "Bedrock/" + s.region,
+			Description:    "AI detection partial failure: Bedrock checks could not run",
+			Recommendation: "Verify Bedrock permissions and retry scan",
+		})
+	}
 
 	// 3. Check for rapid resource provisioning
-	rapidProvRisks, _ := s.checkRapidProvisioning(ctx)
+	rapidProvRisks, err := s.checkRapidProvisioning(ctx)
 	risks = append(risks, rapidProvRisks...)
+	if err != nil {
+		risks = append(risks, AIRisk{
+			RiskType:       "AIDetectionError",
+			Severity:       SeverityLow,
+			Resource:       "CloudWatch/" + s.region,
+			Description:    "AI detection partial failure: rapid provisioning checks could not run",
+			Recommendation: "Verify CloudWatch metrics permissions and retry scan",
+		})
+	}
 
 	// 4. Check for lateral movement patterns
-	lateralRisks, _ := s.checkLateralMovement(ctx)
+	lateralRisks, err := s.checkLateralMovement(ctx)
 	risks = append(risks, lateralRisks...)
+	if err != nil {
+		risks = append(risks, AIRisk{
+			RiskType:       "AIDetectionError",
+			Severity:       SeverityLow,
+			Resource:       "CloudTrail/" + s.region,
+			Description:    "AI detection partial failure: lateral movement checks could not run",
+			Recommendation: "Verify CloudTrail LookupEvents permissions and retry scan",
+		})
+	}
 
 	// 5. Check for rapid admin access
-	adminRisks, _ := s.checkRapidAdminAccess(ctx)
+	adminRisks, err := s.checkRapidAdminAccess(ctx)
 	risks = append(risks, adminRisks...)
+	if err != nil {
+		risks = append(risks, AIRisk{
+			RiskType:       "AIDetectionError",
+			Severity:       SeverityLow,
+			Resource:       "CloudTrail/" + s.region,
+			Description:    "AI detection partial failure: rapid admin access checks could not run",
+			Recommendation: "Verify CloudTrail LookupEvents permissions and retry scan",
+		})
+	}
 
 	// 6. Check for CloudTrail gaps
-	trailGapRisks, _ := s.checkCloudTrailGaps(ctx)
+	trailGapRisks, err := s.checkCloudTrailGaps(ctx)
 	risks = append(risks, trailGapRisks...)
+	if err != nil {
+		risks = append(risks, AIRisk{
+			RiskType:       "AIDetectionError",
+			Severity:       SeverityLow,
+			Resource:       "CloudTrail/" + s.region,
+			Description:    "AI detection partial failure: CloudTrail gap checks could not run",
+			Recommendation: "Verify CloudTrail LookupEvents permissions and retry scan",
+		})
+	}
 
 	return risks, nil
 }
@@ -178,7 +235,7 @@ func (s *service) checkGPUInstances(ctx context.Context) ([]AIRisk, error) {
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			return risks, nil
+			return risks, err
 		}
 
 		for _, reservation := range page.Reservations {
@@ -264,7 +321,7 @@ func (s *service) checkBedrockConfig(ctx context.Context) ([]AIRisk, error) {
 					RiskType:       "HighBedrockCapacity",
 					Severity:       SeverityMedium,
 					Resource:       pmtName,
-					Description:    "Bedrock provisioned throughput with " + string(rune(*pmt.ModelUnits)) + " model units - monitor for abuse",
+					Description:    fmt.Sprintf("Bedrock provisioned throughput with %d model units - monitor for abuse", *pmt.ModelUnits),
 					Recommendation: "Review Bedrock usage; set up cost alerts and usage monitoring",
 				})
 			}
@@ -336,7 +393,10 @@ func (s *service) checkRapidProvisioning(ctx context.Context) ([]AIRisk, error) 
 		Statistics: []cwTypes.Statistic{cwTypes.StatisticSum},
 	})
 
-	if err == nil && throttleMetric.Datapoints != nil {
+	if err != nil {
+		return risks, err
+	}
+	if throttleMetric.Datapoints != nil {
 		for _, dp := range throttleMetric.Datapoints {
 			if dp.Sum != nil && *dp.Sum > 100 {
 				risks = append(risks, AIRisk{
@@ -357,6 +417,7 @@ func (s *service) checkRapidProvisioning(ctx context.Context) ([]AIRisk, error) 
 // checkLateralMovement detects cross-service lateral movement patterns
 func (s *service) checkLateralMovement(ctx context.Context) ([]AIRisk, error) {
 	var risks []AIRisk
+	var lookupErrs []error
 
 	now := time.Now()
 	startTime := now.Add(-1 * time.Hour) // Last hour
@@ -378,6 +439,7 @@ func (s *service) checkLateralMovement(ctx context.Context) ([]AIRisk, error) {
 		})
 
 		if err != nil {
+			lookupErrs = append(lookupErrs, fmt.Errorf("lookup %s: %w", action, err))
 			continue
 		}
 
@@ -396,18 +458,19 @@ func (s *service) checkLateralMovement(ctx context.Context) ([]AIRisk, error) {
 				RiskType:       "LateralMovement",
 				Severity:       SeverityHigh,
 				Resource:       principal,
-				Description:    "Principal assumed " + string(rune(count+'0')) + "+ roles in 1 hour - possible lateral movement",
+				Description:    fmt.Sprintf("Principal assumed %d+ roles in 1 hour - possible lateral movement", count),
 				Recommendation: "Review CloudTrail for this principal; verify legitimate automation or investigate compromise",
 			})
 		}
 	}
 
-	return risks, nil
+	return risks, errors.Join(lookupErrs...)
 }
 
 // checkRapidAdminAccess detects rapid privilege escalation patterns
 func (s *service) checkRapidAdminAccess(ctx context.Context) ([]AIRisk, error) {
 	var risks []AIRisk
+	var lookupErrs []error
 
 	now := time.Now()
 	startTime := now.Add(-15 * time.Minute) // Last 15 minutes - rapid attack window
@@ -429,6 +492,7 @@ func (s *service) checkRapidAdminAccess(ctx context.Context) ([]AIRisk, error) {
 		})
 
 		if err != nil {
+			lookupErrs = append(lookupErrs, fmt.Errorf("lookup %s: %w", action, err))
 			continue
 		}
 
@@ -448,18 +512,19 @@ func (s *service) checkRapidAdminAccess(ctx context.Context) ([]AIRisk, error) {
 				RiskType:       "RapidAdminAccess",
 				Severity:       SeverityCritical,
 				Resource:       principal,
-				Description:    "Principal performed " + string(rune(len(actions)+'0')) + " admin actions in 15 min: " + actionList,
+				Description:    fmt.Sprintf("Principal performed %d admin actions in 15 min: %s", len(actions), actionList),
 				Recommendation: "URGENT: Verify this is authorized; may indicate active privilege escalation attack",
 			})
 		}
 	}
 
-	return risks, nil
+	return risks, errors.Join(lookupErrs...)
 }
 
 // checkCloudTrailGaps detects CloudTrail logging gaps that attackers exploit
 func (s *service) checkCloudTrailGaps(ctx context.Context) ([]AIRisk, error) {
 	var risks []AIRisk
+	var lookupErrs []error
 
 	// Check for StopLogging events (attacker covering tracks)
 	now := time.Now()
@@ -477,6 +542,9 @@ func (s *service) checkCloudTrailGaps(ctx context.Context) ([]AIRisk, error) {
 		MaxResults: aws.Int32(10),
 	})
 
+	if err != nil {
+		lookupErrs = append(lookupErrs, fmt.Errorf("lookup StopLogging: %w", err))
+	}
 	if err == nil && len(stopLoggingEvents.Events) > 0 {
 		for _, event := range stopLoggingEvents.Events {
 			risks = append(risks, AIRisk{
@@ -502,6 +570,9 @@ func (s *service) checkCloudTrailGaps(ctx context.Context) ([]AIRisk, error) {
 		MaxResults: aws.Int32(10),
 	})
 
+	if err != nil {
+		lookupErrs = append(lookupErrs, fmt.Errorf("lookup DeleteTrail: %w", err))
+	}
 	if err == nil && len(deleteTrailEvents.Events) > 0 {
 		for _, event := range deleteTrailEvents.Events {
 			risks = append(risks, AIRisk{
@@ -527,17 +598,62 @@ func (s *service) checkCloudTrailGaps(ctx context.Context) ([]AIRisk, error) {
 		MaxResults: aws.Int32(10),
 	})
 
+	if err != nil {
+		lookupErrs = append(lookupErrs, fmt.Errorf("lookup UpdateTrail: %w", err))
+	}
 	if err == nil && len(updateTrailEvents.Events) > 0 {
-		risks = append(risks, AIRisk{
-			RiskType:       "CloudTrailModified",
-			Severity:       SeverityHigh,
-			Resource:       "CloudTrail",
-			Description:    "CloudTrail configuration was modified recently",
-			Recommendation: "Verify trail changes were authorized and logging is still comprehensive",
-		})
+		for _, event := range updateTrailEvents.Events {
+			if !isRiskyUpdateTrailEvent(event) {
+				continue
+			}
+			risks = append(risks, AIRisk{
+				RiskType:       "CloudTrailModified",
+				Severity:       SeverityHigh,
+				Resource:       aws.ToString(event.Username),
+				Description:    "CloudTrail configuration was modified with potentially risky settings",
+				Recommendation: "Verify trail changes were authorized and ensure logging hardening remains enabled",
+			})
+		}
 	}
 
-	return risks, nil
+	return risks, errors.Join(lookupErrs...)
+}
+
+func isRiskyUpdateTrailEvent(event ctTypes.Event) bool {
+	if event.CloudTrailEvent == nil {
+		return false
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(aws.ToString(event.CloudTrailEvent)), &payload); err != nil {
+		return false
+	}
+
+	reqParams, ok := payload["requestParameters"].(map[string]any)
+	if !ok {
+		return false
+	}
+
+	if v, ok := reqParams["isMultiRegionTrail"].(bool); ok && !v {
+		return true
+	}
+	if v, ok := reqParams["includeGlobalServiceEvents"].(bool); ok && !v {
+		return true
+	}
+	if v, ok := reqParams["enableLogFileValidation"].(bool); ok && !v {
+		return true
+	}
+	if v, ok := reqParams["cloudWatchLogsLogGroupArn"].(string); ok && strings.TrimSpace(v) == "" {
+		return true
+	}
+	if v, ok := reqParams["cloudWatchLogsRoleArn"].(string); ok && strings.TrimSpace(v) == "" {
+		return true
+	}
+	if v, ok := reqParams["kmsKeyId"].(string); ok && strings.TrimSpace(v) == "" {
+		return true
+	}
+
+	return false
 }
 
 func min(a, b int) int {

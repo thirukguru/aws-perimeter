@@ -275,6 +275,32 @@ func TestRunMultiRegionScansWithConfig_PropagatesScanError(t *testing.T) {
 	}
 }
 
+func TestResolveMultiRegionAccountIdentity_UsesFlagAndProfile(t *testing.T) {
+	id, name := resolveMultiRegionAccountIdentity(
+		aws.Config{},
+		model.Flags{
+			AccountID: "123456789012",
+			Profile:   "prod",
+		},
+	)
+	if id != "123456789012" {
+		t.Fatalf("expected account id from flags, got %s", id)
+	}
+	if name != "prod" {
+		t.Fatalf("expected account name from profile, got %s", name)
+	}
+}
+
+func TestResolveMultiRegionAccountIdentity_FallbacksWithoutCredentials(t *testing.T) {
+	id, name := resolveMultiRegionAccountIdentity(aws.Config{}, model.Flags{})
+	if id != "unknown-account" {
+		t.Fatalf("expected fallback account id, got %s", id)
+	}
+	if name != "current-account" {
+		t.Fatalf("expected fallback account name, got %s", name)
+	}
+}
+
 func TestRunMultiRegionScansWithConfig_BestEffortReturnsNilWhenAnyRegionSucceeds(t *testing.T) {
 	err := runMultiRegionScansWithConfig(
 		aws.Config{Region: "us-east-1"},

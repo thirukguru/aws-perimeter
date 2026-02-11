@@ -15,6 +15,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
+	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
 	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
 	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
@@ -65,6 +66,7 @@ func NewService(
 	inspectorService inspector.Service,
 	lambdaSecService lambdasecurity.Service,
 	messagingService messaging.Service,
+	ecrSecService ecrsecurity.Service,
 	cloudtrailSecService cloudtrailsecurity.Service,
 	configService config.Service,
 	dataprotectionSvc dataprotection.Service,
@@ -100,6 +102,7 @@ func NewService(
 		inspectorService:     inspectorService,
 		lambdaSecService:     lambdaSecService,
 		messagingService:     messagingService,
+		ecrSecService:        ecrSecService,
 		cloudtrailSecService: cloudtrailSecService,
 		configService:        configService,
 		dataprotectionSvc:    dataprotectionSvc,
@@ -215,6 +218,8 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		apiNoRateLimits   []apigateway.RateLimitStatus
 		apiNoAuth         []apigateway.AuthorizationStatus
 		apiRisks          []apigateway.APIRisk
+		messagingSecRisks []messaging.MessagingSecurityRisk
+		ecrSecRisks       []ecrsecurity.ECRRisk
 		lambdaPolicyRisks []resourcepolicy.ResourcePolicyRisk
 		sqsPolicyRisks    []resourcepolicy.ResourcePolicyRisk
 		snsPolicyRisks    []resourcepolicy.ResourcePolicyRisk
@@ -446,6 +451,20 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 	g.Go(func() error {
 		var err error
 		apiRisks, err = s.apigatewayService.GetAPIRisks(groupCtx)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		if s.messagingService != nil {
+			messagingSecRisks, err = s.messagingService.GetMessagingSecurityRisks(groupCtx)
+		}
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		if s.ecrSecService != nil {
+			ecrSecRisks, err = s.ecrSecService.GetECRSecurityRisks(groupCtx)
+		}
 		return err
 	})
 
@@ -689,19 +708,21 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		ECRSecrets:    ecrSecrets,
 	}
 	advInput := model.RenderAdvancedInput{
-		AccountID:         *stsResult.Account,
-		Region:            flags.Region,
-		HubStatus:         hubStatus,
-		HubStandards:      hubStandards,
-		HubFindings:       hubFindings,
-		GuardDutyStatus:   gdStatus,
-		GuardDutyFindings: gdFindings,
-		APINoRateLimits:   apiNoRateLimits,
-		APINoAuth:         apiNoAuth,
-		APIRisks:          apiRisks,
-		LambdaPolicyRisks: lambdaPolicyRisks,
-		SQSPolicyRisks:    sqsPolicyRisks,
-		SNSPolicyRisks:    snsPolicyRisks,
+		AccountID:              *stsResult.Account,
+		Region:                 flags.Region,
+		HubStatus:              hubStatus,
+		HubStandards:           hubStandards,
+		HubFindings:            hubFindings,
+		GuardDutyStatus:        gdStatus,
+		GuardDutyFindings:      gdFindings,
+		APINoRateLimits:        apiNoRateLimits,
+		APINoAuth:              apiNoAuth,
+		APIRisks:               apiRisks,
+		MessagingSecurityRisks: messagingSecRisks,
+		ECRSecurityRisks:       ecrSecRisks,
+		LambdaPolicyRisks:      lambdaPolicyRisks,
+		SQSPolicyRisks:         sqsPolicyRisks,
+		SNSPolicyRisks:         snsPolicyRisks,
 	}
 	extInput := extratables.ExtendedSecurityInput{
 		AccountID:        *stsResult.Account,
@@ -731,6 +752,7 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 		ExternalIDRisks:  externalIDRisks,
 		BoundaryRisks:    boundaryRisks,
 		InstanceProfiles: instanceProfiles,
+		AIRisks:          aiRisks,
 	}
 
 	if flags.Output == "table" {
@@ -1229,6 +1251,17 @@ func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolida
 			extFindings = append(extFindings, htmloutput.Finding{
 				Severity: eks.Severity, Title: "EKS: " + eks.RiskType,
 				Resource: resource, Description: eks.Description, Recommendation: eks.Recommendation,
+			})
+		}
+		// ECR Security
+		for _, ecrRisk := range ecrSecRisks {
+			resource := ecrRisk.RepositoryName
+			if resource == "" {
+				resource = ecrRisk.RepositoryARN
+			}
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: ecrRisk.Severity, Title: "ECR: " + ecrRisk.RiskType,
+				Resource: resource, Description: ecrRisk.Description, Recommendation: ecrRisk.Recommendation,
 			})
 		}
 		// AI Attack Detection

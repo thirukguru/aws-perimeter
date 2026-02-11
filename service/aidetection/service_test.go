@@ -1,9 +1,17 @@
 package aidetection
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 )
 
 func TestGPUInstanceTypes(t *testing.T) {
@@ -123,5 +131,204 @@ func TestGPUInstanceTypesCoverage(t *testing.T) {
 		if !found {
 			t.Errorf("GPU family %s not covered in gpuInstanceTypes", family)
 		}
+	}
+}
+
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type mockCloudTrailEvent struct {
+	Username        string
+	CloudTrailEvent string
+}
+
+func usersToEvents(users []string) []mockCloudTrailEvent {
+	events := make([]mockCloudTrailEvent, 0, len(users))
+	for _, u := range users {
+		events = append(events, mockCloudTrailEvent{Username: u})
+	}
+	return events
+}
+
+func newMockCloudTrailService(eventUsers map[string][]mockCloudTrailEvent) *service {
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, _ := io.ReadAll(req.Body)
+			_ = req.Body.Close()
+			payload := string(body)
+
+			eventName := ""
+			for name := range eventUsers {
+				if strings.Contains(payload, `"AttributeValue":"`+name+`"`) {
+					eventName = name
+					break
+				}
+			}
+
+			mockEvents := eventUsers[eventName]
+			events := make([]map[string]string, 0, len(mockEvents))
+			for _, ev := range mockEvents {
+				item := map[string]string{"Username": ev.Username}
+				if ev.CloudTrailEvent != "" {
+					item["CloudTrailEvent"] = ev.CloudTrailEvent
+				}
+				events = append(events, item)
+			}
+
+			respPayload, _ := json.Marshal(map[string]any{"Events": events})
+			return &http.Response{
+				StatusCode: 200,
+				Header: http.Header{
+					"Content-Type": []string{"application/x-amz-json-1.1"},
+				},
+				Body:    io.NopCloser(bytes.NewReader(respPayload)),
+				Request: req,
+			}, nil
+		}),
+	}
+
+	cfg := aws.Config{
+		Region:      "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider("AKID", "SECRET", "TOKEN"),
+		HTTPClient:  httpClient,
+		EndpointResolverWithOptions: aws.EndpointResolverWithOptionsFunc(
+			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{
+					URL:           "https://mock.cloudtrail.local",
+					SigningRegion: region,
+				}, nil
+			},
+		),
+	}
+
+	return &service{
+		cloudtrailClient: cloudtrail.NewFromConfig(cfg, func(o *cloudtrail.Options) {
+			o.RetryMaxAttempts = 1
+		}),
+	}
+}
+
+func TestCheckLateralMovement_MultiDigitCountFormatting(t *testing.T) {
+	users := make([]string, 12)
+	for i := range users {
+		users[i] = "alice"
+	}
+	svc := newMockCloudTrailService(map[string][]mockCloudTrailEvent{
+		"AssumeRole": usersToEvents(users),
+	})
+
+	risks, err := svc.checkLateralMovement(context.Background())
+	if err != nil {
+		t.Fatalf("checkLateralMovement returned error: %v", err)
+	}
+	if len(risks) != 1 {
+		t.Fatalf("expected 1 risk, got %d", len(risks))
+	}
+
+	r := risks[0]
+	if r.RiskType != "LateralMovement" {
+		t.Fatalf("expected risk type LateralMovement, got %s", r.RiskType)
+	}
+	if r.Resource != "alice" {
+		t.Fatalf("expected resource alice, got %s", r.Resource)
+	}
+	if !strings.Contains(r.Description, "12+ roles") {
+		t.Fatalf("expected multi-digit count in description, got %q", r.Description)
+	}
+}
+
+func TestCheckRapidAdminAccess_MultiDigitCountFormatting(t *testing.T) {
+	users := make([]string, 10)
+	for i := range users {
+		users[i] = "bob"
+	}
+	svc := newMockCloudTrailService(map[string][]mockCloudTrailEvent{
+		"AttachUserPolicy": usersToEvents(users),
+		"CreateAccessKey":  usersToEvents([]string{"bob", "bob"}),
+	})
+
+	risks, err := svc.checkRapidAdminAccess(context.Background())
+	if err != nil {
+		t.Fatalf("checkRapidAdminAccess returned error: %v", err)
+	}
+	if len(risks) != 1 {
+		t.Fatalf("expected 1 risk, got %d", len(risks))
+	}
+
+	r := risks[0]
+	if r.RiskType != "RapidAdminAccess" {
+		t.Fatalf("expected risk type RapidAdminAccess, got %s", r.RiskType)
+	}
+	if r.Resource != "bob" {
+		t.Fatalf("expected resource bob, got %s", r.Resource)
+	}
+	if !strings.Contains(r.Description, "12 admin actions") {
+		t.Fatalf("expected multi-digit count in description, got %q", r.Description)
+	}
+}
+
+func TestCheckCloudTrailGaps_DetectsStopDeleteAndUpdate(t *testing.T) {
+	svc := newMockCloudTrailService(map[string][]mockCloudTrailEvent{
+		"StopLogging": usersToEvents([]string{"eve"}),
+		"DeleteTrail": usersToEvents([]string{"mallory"}),
+		"UpdateTrail": {
+			{
+				Username:        "trent",
+				CloudTrailEvent: `{"requestParameters":{"isMultiRegionTrail":false}}`,
+			},
+		},
+	})
+
+	risks, err := svc.checkCloudTrailGaps(context.Background())
+	if err != nil {
+		t.Fatalf("checkCloudTrailGaps returned error: %v", err)
+	}
+	if len(risks) != 3 {
+		t.Fatalf("expected 3 risks, got %d", len(risks))
+	}
+
+	seen := map[string]bool{}
+	for _, risk := range risks {
+		seen[risk.RiskType] = true
+	}
+
+	for _, riskType := range []string{"CloudTrailStopped", "CloudTrailDeleted", "CloudTrailModified"} {
+		if !seen[riskType] {
+			t.Fatalf("expected risk type %s to be present", riskType)
+		}
+	}
+}
+
+func TestCheckCloudTrailGaps_NoEventsNoRisks(t *testing.T) {
+	svc := newMockCloudTrailService(map[string][]mockCloudTrailEvent{})
+
+	risks, err := svc.checkCloudTrailGaps(context.Background())
+	if err != nil {
+		t.Fatalf("checkCloudTrailGaps returned error: %v", err)
+	}
+	if len(risks) != 0 {
+		t.Fatalf("expected 0 risks, got %d", len(risks))
+	}
+}
+
+func TestCheckCloudTrailGaps_BenignUpdateTrailIgnored(t *testing.T) {
+	svc := newMockCloudTrailService(map[string][]mockCloudTrailEvent{
+		"UpdateTrail": {
+			{
+				Username:        "alice",
+				CloudTrailEvent: `{"requestParameters":{"isMultiRegionTrail":true,"includeGlobalServiceEvents":true,"enableLogFileValidation":true}}`,
+			},
+		},
+	})
+
+	risks, err := svc.checkCloudTrailGaps(context.Background())
+	if err != nil {
+		t.Fatalf("checkCloudTrailGaps returned error: %v", err)
+	}
+	if len(risks) != 0 {
+		t.Fatalf("expected 0 risks, got %d", len(risks))
 	}
 }

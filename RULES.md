@@ -216,6 +216,30 @@
 
 ---
 
+## 📨 SNS/SQS Security (5 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **Public SNS Topics** | Detects SNS topics with resource policies allowing public principals (`Principal: "*"`) |
+| **Unencrypted SNS Topics** | Finds SNS topics without KMS encryption configured |
+| **Public SQS Queues** | Detects SQS queues with resource policies allowing public principals |
+| **Unencrypted SQS Queues** | Identifies SQS queues without SSE-SQS or SSE-KMS encryption enabled |
+| **Missing SQS DLQ** | Flags SQS queues with no dead-letter queue (RedrivePolicy) configured |
+
+---
+
+## 🐳 ECR Security (5 Rules) - NEW
+
+| Rule | Description |
+|------|-------------|
+| **Mutable Image Tags** | Detects repositories where image tag mutability is set to `MUTABLE` |
+| **No Image Scanning** | Identifies repositories with scan-on-push disabled |
+| **Public ECR Repository** | Detects repositories with policies allowing public principals |
+| **No KMS Encryption** | Flags repositories not configured with KMS encryption |
+| **No Lifecycle Policy** | Finds repositories without lifecycle retention policy |
+
+---
+
 ## 📊 Summary
 
 | Category | Rule Count | Production Ready |
@@ -233,7 +257,9 @@
 | EKS Security | 12 | ✅ |
 | Extended | 15 | ✅ |
 | AI Attack Detection | 10 | ✅ |
-| **Total** | **107** | ✅ |
+| SNS/SQS Security | 5 | ✅ |
+| ECR Security | 5 | ✅ |
+| **Total** | **117** | ✅ |
 
 ---
 

@@ -28,6 +28,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
+	"github.com/thirukguru/aws-perimeter/service/ecrsecurity"
 	"github.com/thirukguru/aws-perimeter/service/ecssecurity"
 	"github.com/thirukguru/aws-perimeter/service/ekssecurity"
 	"github.com/thirukguru/aws-perimeter/service/elb"
@@ -164,6 +165,7 @@ func buildOrchestratorService(
 	inspectorService := inspector.NewService(awsCfg)
 	lambdaSecService := lambdasecurity.NewService(awsCfg)
 	messagingService := messaging.NewService(awsCfg)
+	ecrSecService := ecrsecurity.NewService(awsCfg)
 	cloudtrailSecService := cloudtrailsecurity.NewService(awsCfg)
 	configService := config.NewService(awsCfg)
 	dataprotectionSvc := dataprotection.NewService(awsCfg)
@@ -195,6 +197,7 @@ func buildOrchestratorService(
 		inspectorService,
 		lambdaSecService,
 		messagingService,
+		ecrSecService,
 		cloudtrailSecService,
 		configService,
 		dataprotectionSvc,
@@ -247,6 +250,8 @@ func runMultiRegionScansWithConfig(
 	storageService storage.Service,
 	deps multiRegionScanDeps,
 ) error {
+	accountID, accountName := resolveMultiRegionAccountIdentity(baseCfg, flags)
+
 	regions, err := deps.resolveRegions(flags, baseCfg)
 	if err != nil {
 		return err
@@ -265,6 +270,8 @@ func runMultiRegionScansWithConfig(
 	}
 	var printMu sync.Mutex
 	var resultMu sync.Mutex
+	var errMu sync.Mutex
+	var firstScanErr error
 	g, ctx := errgroup.WithContext(context.Background())
 	sem := make(chan struct{}, parallel)
 
@@ -294,13 +301,20 @@ func runMultiRegionScansWithConfig(
 			started := time.Now()
 			scanErr := deps.runScan(cfg, regionalFlags, versionInfo, storageService, false)
 			result := fanoutScanResult{
-				Region:   region,
-				Status:   "SUCCESS",
-				Duration: time.Since(started),
+				AccountID:   accountID,
+				AccountName: accountName,
+				Region:      region,
+				Status:      "SUCCESS",
+				Duration:    time.Since(started),
 			}
 			if scanErr != nil {
 				result.Status = "FAILED"
 				result.Error = formatMultiRegionFailure(scanErr)
+				errMu.Lock()
+				if firstScanErr == nil {
+					firstScanErr = scanErr
+				}
+				errMu.Unlock()
 			}
 			resultMu.Lock()
 			results = append(results, result)
@@ -312,7 +326,7 @@ func runMultiRegionScansWithConfig(
 					"Multi-Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
 				printMu.Unlock()
 			}
-			return scanErr
+			return nil
 		})
 	}
 	waitErr := g.Wait()
@@ -322,7 +336,32 @@ func runMultiRegionScansWithConfig(
 	if flags.BestEffort && hasScanSuccess(results) {
 		return nil
 	}
+	if firstScanErr != nil {
+		return firstScanErr
+	}
 	return waitErr
+}
+
+func resolveMultiRegionAccountIdentity(baseCfg aws.Config, flags model.Flags) (string, string) {
+	accountID := strings.TrimSpace(flags.AccountID)
+	// Use profile as friendly name in multi-region mode (single account fanout).
+	accountName := strings.TrimSpace(flags.Profile)
+	if accountName == "" {
+		accountName = "current-account"
+	}
+
+	// Best-effort account ID lookup. Avoid provider resolution in tests where credentials are unset.
+	if accountID == "" && baseCfg.Credentials != nil {
+		stsClient := sts.NewFromConfig(baseCfg)
+		if caller, err := stsClient.GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{}); err == nil {
+			accountID = aws.ToString(caller.Account)
+		}
+	}
+
+	if accountID == "" {
+		accountID = "unknown-account"
+	}
+	return accountID, accountName
 }
 
 func runMultiRegionScansJSON(

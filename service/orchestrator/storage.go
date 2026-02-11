@@ -105,6 +105,38 @@ func (s *service) persistScanIfEnabled(
 	appendPolicyFindings("Lambda", advInput.LambdaPolicyRisks)
 	appendPolicyFindings("SQS", advInput.SQSPolicyRisks)
 	appendPolicyFindings("SNS", advInput.SNSPolicyRisks)
+	for _, r := range advInput.MessagingSecurityRisks {
+		add(storage.Finding{
+			Hash:           findingHash("Messaging", r.Service, r.RiskType, r.Resource),
+			Category:       "Messaging",
+			Subcategory:    r.Service,
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "AWSResource",
+			ResourceID:     r.Resource,
+			Title:          "Messaging Security Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
+	for _, r := range advInput.ECRSecurityRisks {
+		resourceID := r.RepositoryARN
+		if resourceID == "" {
+			resourceID = r.RepositoryName
+		}
+		add(storage.Finding{
+			Hash:           findingHash("ECR", r.RiskType, resourceID),
+			Category:       "ECR",
+			Subcategory:    "Repository",
+			RiskType:       r.RiskType,
+			Severity:       r.Severity,
+			ResourceType:   "ECRRepository",
+			ResourceID:     resourceID,
+			Title:          "ECR Security Risk",
+			Description:    r.Description,
+			Recommendation: r.Recommendation,
+		})
+	}
 	for _, r := range aiRisks {
 		add(storage.Finding{Hash: findingHash("AI", r.RiskType, r.Resource), Category: "AI", Subcategory: "AttackDetection", RiskType: r.RiskType, Severity: r.Severity, ResourceType: "AWSResource", ResourceID: r.Resource, Title: "AI Attack Indicator", Description: r.Description, Recommendation: r.Recommendation})
 	}

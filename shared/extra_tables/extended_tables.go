@@ -7,6 +7,7 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/thirukguru/aws-perimeter/service/aidetection"
 	"github.com/thirukguru/aws-perimeter/service/cloudtrailsecurity"
 	"github.com/thirukguru/aws-perimeter/service/config"
 	"github.com/thirukguru/aws-perimeter/service/dataprotection"
@@ -58,6 +59,8 @@ type ExtendedSecurityInput struct {
 	ExternalIDRisks  []iamadvanced.ExternalIDRisk
 	BoundaryRisks    []iamadvanced.PermissionBoundaryRisk
 	InstanceProfiles []iamadvanced.InstanceProfileRisk
+	// AI Attack Detection
+	AIRisks []aidetection.AIRisk
 }
 
 // DrawExtendedSecurityTable renders all extended security findings
@@ -232,6 +235,26 @@ func DrawExtendedSecurityTable(input ExtendedSecurityInput) {
 		t.Render()
 	}
 
+	// === AI Attack Detection ===
+	if len(input.AIRisks) > 0 {
+		fmt.Println("\n" + text.FgRed.Sprint("🤖 AI Attack Detection"))
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.AppendHeader(table.Row{"Account", "Region", "Severity", "Risk Type", "Resource", "Description"})
+		for _, r := range input.AIRisks {
+			t.AppendRow(table.Row{
+				input.AccountID,
+				input.Region,
+				formatSeverity(r.Severity),
+				r.RiskType,
+				truncate(r.Resource, 28),
+				truncate(r.Description, 48),
+			})
+		}
+		t.SetStyle(table.StyleRounded)
+		t.Render()
+	}
+
 	// === Summary ===
 	totalIssues := countTotalIssues(input)
 	if totalIssues == 0 {
@@ -252,5 +275,5 @@ func countTotalIssues(input ExtendedSecurityInput) int {
 	return len(input.ALBRisks) + len(input.LambdaRoles) +
 		len(input.RootUsage) + len(input.RDSRisks) + len(input.ExternalIDRisks) +
 		len(input.BoundaryRisks) + len(input.PeeringRisks) + len(input.BastionHosts) +
-		len(input.MissingEndpoints)
+		len(input.MissingEndpoints) + len(input.AIRisks)
 }
