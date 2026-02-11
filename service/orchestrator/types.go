@@ -74,4 +74,5 @@ type service struct {
 // Service is the interface for orchestrator service.
 type Service interface {
 	Orchestrate(flags model.Flags) error
+	OrchestrateJSON(flags model.Flags) (map[string]interface{}, error)
 }

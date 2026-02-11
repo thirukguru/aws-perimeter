@@ -307,7 +307,7 @@ const htmlTemplate = `<!DOCTYPE html>
     <div class="container">
         <header>
             <h1>🛡️ AWS Security Report</h1>
-            <p class="meta">Account: <strong>{{.AccountID}}</strong> | Generated: {{.GeneratedAt}}</p>
+            <p class="meta">Account: <strong>{{.AccountID}}</strong> | Region: <strong>{{.Region}}</strong> | Generated: {{.GeneratedAt}}</p>
         </header>
 
         <div class="summary-grid">

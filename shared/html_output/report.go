@@ -12,6 +12,7 @@ import (
 // ReportData contains all data needed for HTML report generation
 type ReportData struct {
 	AccountID   string
+	Region      string
 	GeneratedAt string
 	Sections    []Section
 	Summary     Summary

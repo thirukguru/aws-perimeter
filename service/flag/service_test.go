@@ -28,6 +28,8 @@ func TestGetParsedFlagsAllNewOptions(t *testing.T) {
 		"--org-scan",
 		"--org-role-name", "AuditRole",
 		"--external-id", "ext-123",
+		"--rules",
+		"--capabilities",
 		"--output", "json",
 		"--output-file", "report.html",
 		"--store",
@@ -39,6 +41,7 @@ func TestGetParsedFlagsAllNewOptions(t *testing.T) {
 		"--export-csv", "out.csv",
 		"--account-id", "123456789012",
 		"--max-parallel", "7",
+		"--best-effort",
 		"--dry-run",
 		"--remediate",
 		"--dashboard-port", "9090",
@@ -61,6 +64,9 @@ func TestGetParsedFlagsAllNewOptions(t *testing.T) {
 	if !flags.AllRegions || !flags.OrgScan || flags.OrgRoleName != "AuditRole" || flags.ExternalID != "ext-123" {
 		t.Fatalf("unexpected org flags: %+v", flags)
 	}
+	if !flags.Rules || !flags.Capabilities {
+		t.Fatalf("unexpected docs flags: %+v", flags)
+	}
 	if !flags.Store || !flags.Trends || flags.TrendDays != 15 || !flags.Compare {
 		t.Fatalf("unexpected storage/trend flags: %+v", flags)
 	}
@@ -69,6 +75,9 @@ func TestGetParsedFlagsAllNewOptions(t *testing.T) {
 	}
 	if flags.AccountID != "123456789012" || flags.MaxParallel != 7 {
 		t.Fatalf("unexpected account/parallel flags: %+v", flags)
+	}
+	if !flags.BestEffort {
+		t.Fatalf("expected best-effort to be true: %+v", flags)
 	}
 	if !flags.DryRun || !flags.Remediate || flags.DashboardPort != 9090 || flags.ConfigPath != "/tmp/config.yaml" {
 		t.Fatalf("unexpected remediation/config flags: %+v", flags)
@@ -93,5 +102,11 @@ func TestGetParsedFlagsDefaults(t *testing.T) {
 	}
 	if flags.MaxParallel != 3 {
 		t.Fatalf("unexpected max-parallel default: %d", flags.MaxParallel)
+	}
+	if flags.Rules || flags.Capabilities {
+		t.Fatalf("unexpected docs flags default: %+v", flags)
+	}
+	if flags.BestEffort {
+		t.Fatalf("unexpected best-effort default: %+v", flags)
 	}
 }

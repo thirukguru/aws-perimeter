@@ -12,13 +12,19 @@ import (
 
 // OutputSecurityJSON outputs security analysis data as JSON
 func OutputSecurityJSON(input model.RenderSecurityInput) error {
+	output := BuildSecurityReport(input, time.Now().UTC().Format(time.RFC3339))
+	return printJSON(output)
+}
+
+// BuildSecurityReport builds the security JSON report model.
+func BuildSecurityReport(input model.RenderSecurityInput, generatedAt string) model.SecurityReportJSON {
 	criticalCount, highCount, mediumCount, lowCount, infoCount := countSecuritySeverities(input)
 	totalFindings := criticalCount + highCount + mediumCount + lowCount + infoCount
 
-	output := model.SecurityReportJSON{
+	return model.SecurityReportJSON{
 		AccountID:   input.AccountID,
 		Region:      input.Region,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		GeneratedAt: generatedAt,
 		HasFindings: totalFindings > 0,
 		Summary: model.SecuritySummaryJSON{
 			TotalFindings: totalFindings,
@@ -34,8 +40,6 @@ func OutputSecurityJSON(input model.RenderSecurityInput) error {
 		NACLRisks:            mapNACLRisks(input.NACLRisks),
 		VPCFlowLogStatus:     mapFlowLogStatus(input.VPCFlowLogStatus),
 	}
-
-	return printJSON(output)
 }
 
 func countSecuritySeverities(input model.RenderSecurityInput) (critical, high, medium, low, info int) {
@@ -191,13 +195,19 @@ func printJSON(v interface{}) error {
 
 // OutputIAMJSON outputs IAM security analysis data as JSON
 func OutputIAMJSON(input model.RenderIAMInput) error {
+	output := BuildIAMReport(input, time.Now().UTC().Format(time.RFC3339))
+	return printJSON(output)
+}
+
+// BuildIAMReport builds the IAM JSON report model.
+func BuildIAMReport(input model.RenderIAMInput, generatedAt string) model.IAMReportJSON {
 	critical, high, medium, low, info := countIAMSeverities(input)
 	totalFindings := critical + high + medium + low + info
 
-	output := model.IAMReportJSON{
+	return model.IAMReportJSON{
 		AccountID:   input.AccountID,
 		Region:      input.Region,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		GeneratedAt: generatedAt,
 		HasFindings: totalFindings > 0,
 		Summary: model.IAMSummaryJSON{
 			TotalFindings: totalFindings,
@@ -213,8 +223,6 @@ func OutputIAMJSON(input model.RenderIAMInput) error {
 		UsersWithoutMFA:          mapMFAStatus(input.UsersWithoutMFA),
 		OverlyPermissivePolicies: mapDangerousPolicies(input.OverlyPermissivePolicies),
 	}
-
-	return printJSON(output)
 }
 
 func countIAMSeverities(input model.RenderIAMInput) (critical, high, medium, low, info int) {
@@ -341,10 +349,16 @@ func mapDangerousPolicies(policies []iamService.DangerousPolicy) []model.Dangero
 
 // OutputS3JSON outputs S3 security analysis as JSON
 func OutputS3JSON(input model.RenderS3Input) error {
+	output := BuildS3Report(input, time.Now().UTC().Format(time.RFC3339))
+	return printJSON(output)
+}
+
+// BuildS3Report builds the S3 JSON report model.
+func BuildS3Report(input model.RenderS3Input, generatedAt string) model.S3ReportJSON {
 	output := model.S3ReportJSON{
 		AccountID:   input.AccountID,
 		Region:      input.Region,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		GeneratedAt: generatedAt,
 		HasFindings: len(input.PublicBuckets)+len(input.UnencryptedBkts)+len(input.RiskyPolicies)+len(input.SensitiveExposures) > 0,
 	}
 
@@ -389,15 +403,21 @@ func OutputS3JSON(input model.RenderS3Input) error {
 		})
 	}
 
-	return printJSON(output)
+	return output
 }
 
 // OutputCloudTrailJSON outputs CloudTrail analysis as JSON
 func OutputCloudTrailJSON(input model.RenderCloudTrailInput) error {
+	output := BuildCloudTrailReport(input, time.Now().UTC().Format(time.RFC3339))
+	return printJSON(output)
+}
+
+// BuildCloudTrailReport builds the CloudTrail JSON report model.
+func BuildCloudTrailReport(input model.RenderCloudTrailInput, generatedAt string) model.CloudTrailReportJSON {
 	output := model.CloudTrailReportJSON{
 		AccountID:   input.AccountID,
 		Region:      input.Region,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		GeneratedAt: generatedAt,
 		HasFindings: len(input.TrailGaps) > 0,
 	}
 
@@ -420,11 +440,17 @@ func OutputCloudTrailJSON(input model.RenderCloudTrailInput) error {
 		})
 	}
 
-	return printJSON(output)
+	return output
 }
 
 // OutputSecretsJSON outputs secrets detection results as JSON
 func OutputSecretsJSON(input model.RenderSecretsInput) error {
+	output := BuildSecretsReport(input, time.Now().UTC().Format(time.RFC3339))
+	return printJSON(output)
+}
+
+// BuildSecretsReport builds the secrets JSON report model.
+func BuildSecretsReport(input model.RenderSecretsInput, generatedAt string) model.SecretsReportJSON {
 	allSecrets := append(input.LambdaSecrets, input.EC2Secrets...)
 	allSecrets = append(allSecrets, input.S3Secrets...)
 	allSecrets = append(allSecrets, input.ECRSecrets...)
@@ -432,7 +458,7 @@ func OutputSecretsJSON(input model.RenderSecretsInput) error {
 	output := model.SecretsReportJSON{
 		AccountID:   input.AccountID,
 		Region:      input.Region,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		GeneratedAt: generatedAt,
 		HasFindings: len(allSecrets) > 0,
 		TotalCount:  len(allSecrets),
 	}
@@ -449,18 +475,24 @@ func OutputSecretsJSON(input model.RenderSecretsInput) error {
 		})
 	}
 
-	return printJSON(output)
+	return output
 }
 
 // OutputAdvancedJSON outputs advanced security findings as JSON
 func OutputAdvancedJSON(input model.RenderAdvancedInput) error {
+	output := BuildAdvancedReport(input, time.Now().UTC().Format(time.RFC3339))
+	return printJSON(output)
+}
+
+// BuildAdvancedReport builds the advanced security JSON report model.
+func BuildAdvancedReport(input model.RenderAdvancedInput, generatedAt string) model.AdvancedReportJSON {
 	allPolicyRisks := append(input.LambdaPolicyRisks, input.SQSPolicyRisks...)
 	allPolicyRisks = append(allPolicyRisks, input.SNSPolicyRisks...)
 
 	output := model.AdvancedReportJSON{
 		AccountID:   input.AccountID,
 		Region:      input.Region,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		GeneratedAt: generatedAt,
 	}
 
 	if input.HubStatus != nil {
@@ -477,5 +509,5 @@ func OutputAdvancedJSON(input model.RenderAdvancedInput) error {
 	output.APIsWithoutAuth = input.APINoAuth
 	output.ResourcePolicyRisks = allPolicyRisks
 
-	return printJSON(output)
+	return output
 }

@@ -275,6 +275,78 @@ func TestRunMultiRegionScansWithConfig_PropagatesScanError(t *testing.T) {
 	}
 }
 
+func TestRunMultiRegionScansWithConfig_BestEffortReturnsNilWhenAnyRegionSucceeds(t *testing.T) {
+	err := runMultiRegionScansWithConfig(
+		aws.Config{Region: "us-east-1"},
+		model.Flags{MaxParallel: 2, BestEffort: true},
+		model.VersionInfo{},
+		nil,
+		multiRegionScanDeps{
+			resolveRegions: func(model.Flags, aws.Config) ([]string, error) {
+				return []string{"us-east-1", "us-west-2"}, nil
+			},
+			runScan: func(_ aws.Config, flags model.Flags, _ model.VersionInfo, _ storage.Service, _ bool) error {
+				if flags.Region == "us-west-2" {
+					return errors.New("temporary DNS failure")
+				}
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected nil error in best-effort mode when one region succeeds, got: %v", err)
+	}
+}
+
+func TestRunMultiRegionScansWithConfig_BestEffortStillFailsWhenAllRegionsFail(t *testing.T) {
+	err := runMultiRegionScansWithConfig(
+		aws.Config{Region: "us-east-1"},
+		model.Flags{MaxParallel: 2, BestEffort: true},
+		model.VersionInfo{},
+		nil,
+		multiRegionScanDeps{
+			resolveRegions: func(model.Flags, aws.Config) ([]string, error) {
+				return []string{"us-east-1", "us-west-2"}, nil
+			},
+			runScan: func(_ aws.Config, _ model.Flags, _ model.VersionInfo, _ storage.Service, _ bool) error {
+				return errors.New("all regions failed")
+			},
+		},
+	)
+	if err == nil {
+		t.Fatalf("expected error when all regions fail, even in best-effort mode")
+	}
+}
+
+func TestFormatMultiRegionFailure(t *testing.T) {
+	msg := formatMultiRegionFailure(errors.New("lookup timeout"))
+	if !strings.Contains(msg, "Try again after sometime.") {
+		t.Fatalf("missing retry hint in failure message: %s", msg)
+	}
+	if !strings.Contains(msg, "lookup timeout") {
+		t.Fatalf("missing original error in failure message: %s", msg)
+	}
+}
+
+func TestBuildFanoutOutputFile(t *testing.T) {
+	ts := time.Date(2026, 2, 10, 21, 30, 45, 0, time.UTC)
+
+	got := buildFanoutOutputFile("reports/security-report.html", "", "us-east-1", ts)
+	if got != "reports/security-report-us-east-1-20260210-213045.html" {
+		t.Fatalf("unexpected multi-region output file: %s", got)
+	}
+
+	got = buildFanoutOutputFile("reports/security-report.html", "123456789012", "us-west-2", ts)
+	if got != "reports/security-report-123456789012-us-west-2-20260210-213045.html" {
+		t.Fatalf("unexpected org-scan output file: %s", got)
+	}
+
+	got = buildFanoutOutputFile("security-report.html", "", "eu-west-1", ts)
+	if got != "security-report-eu-west-1-20260210-213045.html" {
+		t.Fatalf("unexpected relative output file: %s", got)
+	}
+}
+
 func TestBuildAccountRollups(t *testing.T) {
 	rollups := buildAccountRollups([]fanoutScanResult{
 		{AccountID: "111111111111", AccountName: "mgmt", Region: "us-east-1", Status: "SUCCESS"},

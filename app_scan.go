@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
+	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -61,6 +64,7 @@ type orgAccount struct {
 type multiRegionScanDeps struct {
 	resolveRegions func(model.Flags, aws.Config) ([]string, error)
 	runScan        func(aws.Config, model.Flags, model.VersionInfo, storage.Service, bool) error
+	runScanJSON    func(aws.Config, model.Flags, model.VersionInfo, storage.Service) (map[string]interface{}, error)
 }
 
 type orgScanDeps struct {
@@ -114,15 +118,34 @@ func runConfiguredScan(
 	versionInfo model.VersionInfo,
 	storageService storage.Service,
 	useSpinner bool,
-) error {
+) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic during security scan for region %s: %v\n%s", flags.Region, r, string(debug.Stack()))
+		}
+	}()
+
 	if flags.Region == "" {
 		flags.Region = awsCfg.Region
 	}
-	if useSpinner {
+	if useSpinner && flags.Output != "json" {
 		spinner.StartSpinner()
 		defer spinner.StopSpinner()
 	}
 
+	orchestratorService := buildOrchestratorService(awsCfg, flags.Output, versionInfo, storageService)
+	if err := orchestratorService.Orchestrate(flags); err != nil {
+		return fmt.Errorf("security scan failed for region %s: %w", flags.Region, err)
+	}
+	return nil
+}
+
+func buildOrchestratorService(
+	awsCfg aws.Config,
+	outputFormat string,
+	versionInfo model.VersionInfo,
+	storageService storage.Service,
+) orchestrator.Service {
 	stsService := awssts.NewService(awsCfg)
 	vpcService := vpc.NewService(awsCfg)
 	iamService := iam.NewService(awsCfg)
@@ -133,7 +156,7 @@ func runConfiguredScan(
 	guarddutyService := guardduty.NewService(awsCfg)
 	apigatewayService := apigateway.NewService(awsCfg)
 	resourcePolSvc := resourcepolicy.NewService(awsCfg)
-	outputService := output.NewService(flags.Output)
+	outputService := output.NewService(outputFormat)
 
 	shieldService := shield.NewService(awsCfg)
 	elbService := elb.NewService(awsCfg)
@@ -153,7 +176,7 @@ func runConfiguredScan(
 	eksSecService := ekssecurity.NewService(awsCfg)
 	aiDetectionService := aidetection.NewService(awsCfg)
 
-	orchestratorService := orchestrator.NewService(
+	return orchestrator.NewService(
 		stsService,
 		vpcService,
 		iamService,
@@ -185,11 +208,6 @@ func runConfiguredScan(
 		aiDetectionService,
 		storageService,
 	)
-
-	if err := orchestratorService.Orchestrate(flags); err != nil {
-		return fmt.Errorf("security scan failed for region %s: %w", flags.Region, err)
-	}
-	return nil
 }
 
 func getAccountIDForFlags(flags model.Flags) (string, error) {
@@ -218,6 +236,7 @@ func runMultiRegionScans(flags model.Flags, versionInfo model.VersionInfo, stora
 	return runMultiRegionScansWithConfig(baseCfg, flags, versionInfo, storageService, multiRegionScanDeps{
 		resolveRegions: resolveRegionsFromConfig,
 		runScan:        runScanWithRetry,
+		runScanJSON:    runScanJSONPayloadWithRetry,
 	})
 }
 
@@ -232,11 +251,17 @@ func runMultiRegionScansWithConfig(
 	if err != nil {
 		return err
 	}
+	if flags.Output == "json" && deps.runScanJSON != nil {
+		return runMultiRegionScansJSON(baseCfg, flags, versionInfo, storageService, regions, deps.runScanJSON)
+	}
 	results := make([]fanoutScanResult, 0, len(regions))
 	progress := fanoutProgress{Total: len(regions)}
 	parallel := flags.MaxParallel
 	if parallel <= 0 {
 		parallel = 3
+	}
+	if flags.Output == "json" || flags.Output == "html" {
+		parallel = 1
 	}
 	var printMu sync.Mutex
 	var resultMu sync.Mutex
@@ -253,12 +278,17 @@ func runMultiRegionScansWithConfig(
 			}
 			defer func() { <-sem }()
 
-			printMu.Lock()
-			fmt.Printf("\n🌍 Scanning region: %s\n", region)
-			printMu.Unlock()
+			if flags.Output != "json" {
+				printMu.Lock()
+				fmt.Printf("\n🌍 Scanning region: %s\n", region)
+				printMu.Unlock()
+			}
 
 			regionalFlags := flags
 			regionalFlags.Region = region
+			if regionalFlags.Output == "html" && strings.TrimSpace(regionalFlags.OutputFile) != "" {
+				regionalFlags.OutputFile = buildFanoutOutputFile(regionalFlags.OutputFile, "", region, time.Now())
+			}
 			cfg := baseCfg
 			cfg.Region = region
 			started := time.Now()
@@ -270,22 +300,158 @@ func runMultiRegionScansWithConfig(
 			}
 			if scanErr != nil {
 				result.Status = "FAILED"
-				result.Error = scanErr.Error()
+				result.Error = formatMultiRegionFailure(scanErr)
 			}
 			resultMu.Lock()
 			results = append(results, result)
 			snapshot := updateFanoutProgress(&progress, result.Status)
 			resultMu.Unlock()
-			printMu.Lock()
-			fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
-				"Multi-Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
-			printMu.Unlock()
+			if flags.Output != "json" {
+				printMu.Lock()
+				fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
+					"Multi-Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
+				printMu.Unlock()
+			}
 			return scanErr
 		})
 	}
 	waitErr := g.Wait()
-	renderFanoutSummary("Multi-Region", results)
+	if flags.Output != "json" {
+		renderFanoutSummary("Multi-Region", results)
+	}
+	if flags.BestEffort && hasScanSuccess(results) {
+		return nil
+	}
 	return waitErr
+}
+
+func runMultiRegionScansJSON(
+	baseCfg aws.Config,
+	flags model.Flags,
+	versionInfo model.VersionInfo,
+	storageService storage.Service,
+	regions []string,
+	runScanJSON func(aws.Config, model.Flags, model.VersionInfo, storage.Service) (map[string]interface{}, error),
+) error {
+	type regionError struct {
+		Region string `json:"region"`
+		Error  string `json:"error"`
+	}
+	type summary struct {
+		TotalRegions int `json:"total_regions"`
+		Success      int `json:"success"`
+		Failed       int `json:"failed"`
+		Skipped      int `json:"skipped"`
+	}
+	type aggregate struct {
+		Tool        string                   `json:"tool"`
+		Mode        string                   `json:"mode"`
+		GeneratedAt string                   `json:"generated_at"`
+		BestEffort  bool                     `json:"best_effort"`
+		Summary     summary                  `json:"summary"`
+		Results     []map[string]interface{} `json:"results"`
+		Failures    []regionError            `json:"failures,omitempty"`
+	}
+
+	out := aggregate{
+		Tool:        "aws-perimeter",
+		Mode:        "multi-region",
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		BestEffort:  flags.BestEffort,
+		Summary: summary{
+			TotalRegions: len(regions),
+		},
+		Results: make([]map[string]interface{}, 0, len(regions)),
+	}
+
+	var firstErr error
+	for _, region := range regions {
+		regionalFlags := flags
+		regionalFlags.Region = region
+		cfg := baseCfg
+		cfg.Region = region
+
+		payload, err := runScanJSON(cfg, regionalFlags, versionInfo, storageService)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			out.Summary.Failed++
+			out.Failures = append(out.Failures, regionError{
+				Region: region,
+				Error:  formatMultiRegionFailure(err),
+			})
+			continue
+		}
+		out.Summary.Success++
+		out.Results = append(out.Results, payload)
+	}
+
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal aggregated multi-region json: %w", err)
+	}
+	fmt.Println(string(b))
+
+	if flags.BestEffort && out.Summary.Success > 0 {
+		return nil
+	}
+	if firstErr != nil {
+		return firstErr
+	}
+	return nil
+}
+
+func hasScanSuccess(results []fanoutScanResult) bool {
+	for _, r := range results {
+		if r.Status == "SUCCESS" {
+			return true
+		}
+	}
+	return false
+}
+
+func formatMultiRegionFailure(err error) string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("Try again after sometime. %s", err.Error())
+}
+
+func buildFanoutOutputFile(basePath, accountID, region string, t time.Time) string {
+	basePath = strings.TrimSpace(basePath)
+	if basePath == "" {
+		return basePath
+	}
+	ext := filepath.Ext(basePath)
+	dir := filepath.Dir(basePath)
+	baseName := filepath.Base(basePath)
+	nameOnly := strings.TrimSuffix(baseName, ext)
+	if nameOnly == "" {
+		nameOnly = "security-report"
+	}
+
+	suffixParts := []string{}
+	if strings.TrimSpace(accountID) != "" {
+		suffixParts = append(suffixParts, accountID)
+	}
+	if strings.TrimSpace(region) != "" {
+		suffixParts = append(suffixParts, region)
+	}
+	suffix := strings.Join(suffixParts, "-")
+	if suffix != "" {
+		nameOnly = fmt.Sprintf("%s-%s", nameOnly, suffix)
+	}
+	if t.IsZero() {
+		t = time.Now()
+	}
+	nameOnly = fmt.Sprintf("%s-%s", nameOnly, t.UTC().Format("20060102-150405"))
+
+	fileName := nameOnly + ext
+	if dir == "." || dir == "" {
+		return fileName
+	}
+	return filepath.Join(dir, fileName)
 }
 
 func runOrgScans(flags model.Flags, versionInfo model.VersionInfo, storageService storage.Service) error {
@@ -324,6 +490,9 @@ func runOrgScansWithConfig(
 	if parallel <= 0 {
 		parallel = 3
 	}
+	if flags.Output == "json" || flags.Output == "html" {
+		parallel = 1
+	}
 	var printMu sync.Mutex
 	var resultMu sync.Mutex
 	g, ctx := errgroup.WithContext(context.Background())
@@ -341,19 +510,23 @@ func runOrgScansWithConfig(
 				}
 				defer func() { <-sem }()
 
-				printMu.Lock()
-				fmt.Printf("\n🏢 Scanning account: %s (%s)\n", acct.Name, acct.ID)
-				fmt.Printf("  🌍 Region: %s\n", region)
-				printMu.Unlock()
+				if flags.Output != "json" {
+					printMu.Lock()
+					fmt.Printf("\n🏢 Scanning account: %s (%s)\n", acct.Name, acct.ID)
+					fmt.Printf("  🌍 Region: %s\n", region)
+					printMu.Unlock()
+				}
 
 				scanCfg := baseCfg
 				scanCfg.Region = region
 				if acct.ID != managementAccountID {
 					assumedCfg, err := deps.assumeRole(baseCfg, acct.ID, region, flags.OrgRoleName, flags.ExternalID)
 					if err != nil {
-						printMu.Lock()
-						fmt.Printf("  ⚠️ Skipping account %s in %s: %v\n", acct.ID, region, err)
-						printMu.Unlock()
+						if flags.Output != "json" {
+							printMu.Lock()
+							fmt.Printf("  ⚠️ Skipping account %s in %s: %v\n", acct.ID, region, err)
+							printMu.Unlock()
+						}
 						resultMu.Lock()
 						results = append(results, fanoutScanResult{
 							AccountID:   acct.ID,
@@ -364,16 +537,21 @@ func runOrgScansWithConfig(
 						})
 						snapshot := updateFanoutProgress(&progress, "SKIPPED")
 						resultMu.Unlock()
-						printMu.Lock()
-						fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
-							"Org + Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
-						printMu.Unlock()
+						if flags.Output != "json" {
+							printMu.Lock()
+							fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
+								"Org + Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
+							printMu.Unlock()
+						}
 						return nil
 					}
 					scanCfg = assumedCfg
 				}
 				regionalFlags := flags
 				regionalFlags.Region = region
+				if regionalFlags.Output == "html" && strings.TrimSpace(regionalFlags.OutputFile) != "" {
+					regionalFlags.OutputFile = buildFanoutOutputFile(regionalFlags.OutputFile, acct.ID, region, time.Now())
+				}
 				started := time.Now()
 				scanErr := deps.runScan(scanCfg, regionalFlags, versionInfo, storageService, false)
 				result := fanoutScanResult{
@@ -391,10 +569,12 @@ func runOrgScansWithConfig(
 				results = append(results, result)
 				snapshot := updateFanoutProgress(&progress, result.Status)
 				resultMu.Unlock()
-				printMu.Lock()
-				fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
-					"Org + Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
-				printMu.Unlock()
+				if flags.Output != "json" {
+					printMu.Lock()
+					fmt.Printf("  Progress [%s]: %d/%d (success=%d failed=%d skipped=%d)\n",
+						"Org + Region", snapshot.Completed, snapshot.Total, snapshot.Success, snapshot.Failed, snapshot.Skipped)
+					printMu.Unlock()
+				}
 				if scanErr != nil {
 					return fmt.Errorf("org scan failed for account %s region %s: %w", acct.ID, region, scanErr)
 				}
@@ -403,7 +583,9 @@ func runOrgScansWithConfig(
 		}
 	}
 	waitErr := g.Wait()
-	renderFanoutSummary("Org + Region", results)
+	if flags.Output != "json" {
+		renderFanoutSummary("Org + Region", results)
+	}
 	return waitErr
 }
 
@@ -429,10 +611,62 @@ func runScanWithRetry(
 			return err
 		}
 		backoff := retryBackoffDuration(attempt, baseBackoff, maxBackoff, rng)
-		fmt.Printf("  ↻ Retry %d/%d for region %s in %s: %v\n", attempt+1, maxAttempts, flags.Region, backoff.Round(10*time.Millisecond), err)
+		if flags.Output != "json" {
+			fmt.Printf("  ↻ Retry %d/%d for region %s in %s: %v\n", attempt+1, maxAttempts, flags.Region, backoff.Round(10*time.Millisecond), err)
+		}
 		time.Sleep(backoff)
 	}
 	return lastErr
+}
+
+func runScanJSONPayloadWithRetry(
+	cfg aws.Config,
+	flags model.Flags,
+	versionInfo model.VersionInfo,
+	storageService storage.Service,
+) (map[string]interface{}, error) {
+	const maxAttempts = 3
+	const baseBackoff = 500 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+	var lastErr error
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		payload, err := runConfiguredScanJSONPayload(cfg, flags, versionInfo, storageService)
+		if err == nil {
+			return payload, nil
+		}
+		lastErr = err
+		if !isRetryableScanError(err) || attempt == maxAttempts {
+			return nil, err
+		}
+		backoff := retryBackoffDuration(attempt, baseBackoff, maxBackoff, rng)
+		time.Sleep(backoff)
+	}
+	return nil, lastErr
+}
+
+func runConfiguredScanJSONPayload(
+	awsCfg aws.Config,
+	flags model.Flags,
+	versionInfo model.VersionInfo,
+	storageService storage.Service,
+) (payload map[string]interface{}, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic during security scan for region %s: %v\n%s", flags.Region, r, string(debug.Stack()))
+		}
+	}()
+	if flags.Region == "" {
+		flags.Region = awsCfg.Region
+	}
+	flags.Output = "json"
+
+	orchestratorService := buildOrchestratorService(awsCfg, flags.Output, versionInfo, storageService)
+	out, err := orchestratorService.OrchestrateJSON(flags)
+	if err != nil {
+		return nil, fmt.Errorf("security scan failed for region %s: %w", flags.Region, err)
+	}
+	return out, nil
 }
 
 func retryBackoffDuration(attempt int, base, max time.Duration, rng *rand.Rand) time.Duration {

@@ -9,6 +9,8 @@
 
 A terminal-based **AWS Security Scanner** with **100+ security checks** across VPC, IAM, S3, CloudTrail, containers (ECS/EKS), and AI attack detection. Detects dangerous IAM permissions, exposed secrets, misconfigured S3 buckets, container vulnerabilities, and emerging LLMjacking threats.
 
+Product overview: [`docs/CAPABILITIES_OVERVIEW.md`](docs/CAPABILITIES_OVERVIEW.md)
+
 ## Features
 
 ### 🔒 VPC Security
@@ -154,8 +156,13 @@ aws-perimeter --output json            # JSON output
 aws-perimeter --profile prod           # Specific AWS profile
 aws-perimeter --region us-west-2       # Specific region
 aws-perimeter --regions us-east-1,us-west-2            # Multi-region scan
+aws-perimeter --regions us-east-1,us-west-2 --max-parallel 4  # Multi-region with controlled concurrency
+aws-perimeter --regions us-east-1,us-west-2 --max-parallel 4 --best-effort  # Exit success if at least one region succeeds
+aws-perimeter --rules                   # Print RULES.md to stdout (Markdown)
+aws-perimeter --capabilities            # Print capabilities overview to stdout (Markdown)
 aws-perimeter --all-regions                            # Scan all enabled regions
 aws-perimeter --org-scan --org-role-name OrganizationAccountAccessRole  # Multi-account org scan
+aws-perimeter --org-scan --max-parallel 5              # Org+region fanout concurrency
 aws-perimeter --output html --output-file report.html  # Generate HTML report
 aws-perimeter --store --profile prod --region us-west-2 # Run + persist scan
 aws-perimeter --trends --trend-days 30 --account-id 123456789012  # Show historical trend table
@@ -163,13 +170,45 @@ aws-perimeter history list --db-path ~/.aws-perimeter/history.db
 aws-perimeter dashboard --port 8080
 ```
 
+For fanout modes (`--regions`, `--all-regions`, `--org-scan`) with `--output html --output-file ...`, aws-perimeter writes one report per scan unit with region/account + timestamp suffixes (for example `security-report-us-east-1-20260210-213045.html` or `security-report-123456789012-us-east-1-20260210-213045.html`).
+In HTML mode, terminal table output is suppressed and only concise summary lines are printed.
+
+### JSON Automation Mode
+
+When `--output json` is used, `aws-perimeter` emits a single valid JSON document with no banner/spinner noise, so it is safe for pipelines.
+
+```bash
+aws-perimeter --profile prod --region us-west-2 --output json | jq .
+
+# Multi-region JSON emits one aggregated top-level JSON document:
+aws-perimeter --profile prod --regions us-east-1,us-west-2 --output json | jq .
+
+# export docs via stdout redirection
+aws-perimeter --rules > rules.md
+aws-perimeter --capabilities > capabilities.md
+```
+
+Multi-region JSON payload includes:
+- `summary` (`total_regions`, `success`, `failed`, `skipped`)
+- `results` (per-region consolidated scan payloads)
+- `failures` (region + error details when a region scan fails)
+
 ### Fanout Summary Output
 
-For multi-region and org scans, aws-perimeter now prints a consolidated summary at the end of execution:
+For multi-region and org scans in non-JSON output modes, aws-perimeter prints a consolidated summary at the end of execution:
 
 - Per-scan-unit rows with `account_id`, `account_name`, `region`, `status`, `duration`, and `error`.
 - Aggregate totals (`TOTAL`, `SUCCESS`, `FAILED`, `SKIPPED`).
 - Account-level rollup table for org scans (success/failure/skip counts per account).
+
+### `--max-parallel` and `--best-effort`
+
+- `--max-parallel` controls how many region/account scan units run concurrently in fanout modes (`--regions`, `--all-regions`, `--org-scan`).
+- Higher values speed up scans but increase API pressure and chance of throttling/network contention.
+- Recommended starting point: `--max-parallel 3` or `--max-parallel 4`.
+- `--best-effort` applies to multi-region scans: command exits success (`0`) when at least one region succeeds, even if some regions fail.
+- Without `--best-effort`, any failed region returns a non-zero exit code.
+- In JSON multi-region output, failed regions appear under `failures` with the exact error.
 
 ## Flags
 
@@ -183,6 +222,8 @@ For multi-region and org scans, aws-perimeter now prints a consolidated summary 
 | `--org-role-name` | | IAM role name to assume in member accounts |
 | `--external-id` | | External ID for cross-account assume role |
 | `--output` | `-o` | Output format: `table`, `json`, or `html` |
+| `--rules` | | Print rules catalog Markdown and exit |
+| `--capabilities` | | Print capabilities Markdown and exit |
 | `--output-file` | `-f` | Output file (required for html) |
 | `--store` | | Persist scan results in SQLite |
 | `--db-path` | | Custom SQLite DB path |
@@ -193,6 +234,7 @@ For multi-region and org scans, aws-perimeter now prints a consolidated summary 
 | `--export-csv` | | Export trends CSV file |
 | `--account-id` | | Account filter for trends/history |
 | `--max-parallel` | | Max concurrent region/account scan units |
+| `--best-effort` | | For multi-region scans, return success if at least one region succeeds |
 | `--dry-run` | | Remediation preview mode |
 | `--remediate` | | Apply supported remediations |
 | `--dashboard-port` | | Dashboard port (root flag; dashboard subcommand uses `--port`) |

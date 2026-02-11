@@ -22,6 +22,8 @@ func (s *service) GetParsedFlags() (model.Flags, error) {
 	orgRoleName := pflag.String("org-role-name", "OrganizationAccountAccessRole", "IAM role name to assume in member accounts")
 	externalID := pflag.String("external-id", "", "External ID for cross-account role assumption")
 	version := pflag.BoolP("version", "v", false, "Show version information")
+	rules := pflag.Bool("rules", false, "Print rules catalog in Markdown and exit")
+	capabilities := pflag.Bool("capabilities", false, "Print capabilities overview in Markdown and exit")
 	output := pflag.StringP("output", "o", "table", "Output format (table, json, or html)")
 	outputFile := pflag.StringP("output-file", "f", "", "Output file path (required for html format)")
 	store := pflag.Bool("store", false, "Persist scan results in local SQLite database")
@@ -33,6 +35,7 @@ func (s *service) GetParsedFlags() (model.Flags, error) {
 	exportCSV := pflag.String("export-csv", "", "Export trend output as CSV to file path")
 	accountID := pflag.String("account-id", "", "Account ID filter for trends/history queries")
 	maxParallel := pflag.Int("max-parallel", 3, "Maximum concurrent scan units for region/account fanout")
+	bestEffort := pflag.Bool("best-effort", false, "For multi-region scan, return success if at least one region succeeds")
 	dryRun := pflag.Bool("dry-run", false, "Preview remediation actions without applying changes")
 	remediate := pflag.Bool("remediate", false, "Apply supported automated remediations")
 	dashboardPort := pflag.Int("dashboard-port", 8080, "Port for local dashboard server")
@@ -59,6 +62,8 @@ func (s *service) GetParsedFlags() (model.Flags, error) {
 		OrgRoleName:   *orgRoleName,
 		ExternalID:    *externalID,
 		Version:       *version,
+		Rules:         *rules,
+		Capabilities:  *capabilities,
 		Output:        *output,
 		OutputFile:    *outputFile,
 		Store:         *store,
@@ -70,6 +75,7 @@ func (s *service) GetParsedFlags() (model.Flags, error) {
 		ExportCSV:     *exportCSV,
 		AccountID:     *accountID,
 		MaxParallel:   *maxParallel,
+		BestEffort:    *bestEffort,
 		DryRun:        *dryRun,
 		Remediate:     *remediate,
 		DashboardPort: *dashboardPort,

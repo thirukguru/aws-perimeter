@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/thirukguru/aws-perimeter/model"
 	"github.com/thirukguru/aws-perimeter/service/flag"
@@ -42,6 +43,13 @@ func run() error {
 
 	versionInfo := model.VersionInfo{Version: version, Commit: commit, Date: date}
 
+	if flags.Rules || flags.Capabilities {
+		if err := printRequestedDocs(flags); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	if flags.Version {
 		outputService := output.NewService(flags.Output)
 		orchestratorService := orchestrator.NewService(
@@ -55,7 +63,9 @@ func run() error {
 		return orchestratorService.Orchestrate(flags)
 	}
 
-	banner.DrawBannerTitle()
+	if flags.Output != "json" {
+		banner.DrawBannerTitle()
+	}
 
 	var storageService storage.Service
 	if flags.Store || flags.Trends || flags.Compare || flags.ExportJSON != "" || flags.ExportCSV != "" {
@@ -101,4 +111,40 @@ func run() error {
 	}
 
 	return runRegionScan(flags, versionInfo, storageService)
+}
+
+func printRequestedDocs(flags model.Flags) error {
+	type docSpec struct {
+		enabled bool
+		path    string
+		label   string
+	}
+	docs := []docSpec{
+		{enabled: flags.Rules, path: "RULES.md", label: "--rules"},
+		{enabled: flags.Capabilities, path: "docs/CAPABILITIES_OVERVIEW.md", label: "--capabilities"},
+	}
+
+	printed := 0
+	for _, d := range docs {
+		if !d.enabled {
+			continue
+		}
+		content, err := os.ReadFile(d.path)
+		if err != nil {
+			return fmt.Errorf("%s failed: unable to read %s: %w", d.label, d.path, err)
+		}
+		text := strings.TrimSpace(string(content))
+		if text == "" {
+			return fmt.Errorf("%s failed: %s is empty", d.label, d.path)
+		}
+		if printed > 0 {
+			fmt.Println()
+			fmt.Println("---")
+			fmt.Println()
+		}
+		fmt.Println(text)
+		printed++
+	}
+
+	return nil
 }

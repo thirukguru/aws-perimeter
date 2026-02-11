@@ -10,6 +10,8 @@ type Flags struct {
 	OrgRoleName   string
 	ExternalID    string
 	Version       bool
+	Rules         bool
+	Capabilities  bool
 	Output        string
 	OutputFile    string
 	Store         bool
@@ -21,6 +23,7 @@ type Flags struct {
 	ExportCSV     string
 	AccountID     string
 	MaxParallel   int
+	BestEffort    bool
 	DryRun        bool
 	Remediate     bool
 	DashboardPort int

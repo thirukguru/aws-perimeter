@@ -3,6 +3,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -39,6 +40,7 @@ import (
 	"github.com/thirukguru/aws-perimeter/service/vpcendpoints"
 	extratables "github.com/thirukguru/aws-perimeter/shared/extra_tables"
 	htmloutput "github.com/thirukguru/aws-perimeter/shared/html_output"
+	jsonoutput "github.com/thirukguru/aws-perimeter/shared/json_output"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -118,7 +120,28 @@ func (s *service) Orchestrate(flags model.Flags) error {
 		return s.versionWorkflow()
 	}
 
-	return s.securityWorkflow(flags)
+	_, err := s.securityWorkflow(flags, true)
+	return err
+}
+
+func (s *service) OrchestrateJSON(flags model.Flags) (map[string]interface{}, error) {
+	flags.Output = "json"
+	payload, err := s.securityWorkflow(flags, false)
+	if err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("json payload is empty")
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal json payload: %w", err)
+	}
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("failed to convert json payload: %w", err)
+	}
+	return out, nil
 }
 
 func (s *service) versionWorkflow() error {
@@ -131,7 +154,7 @@ func (s *service) versionWorkflow() error {
 	return nil
 }
 
-func (s *service) securityWorkflow(flags model.Flags) error {
+func (s *service) securityWorkflow(flags model.Flags, emitJSON bool) (*consolidatedJSONReport, error) {
 	startedAt := time.Now()
 	scanCtx := context.Background()
 	g, groupCtx := errgroup.WithContext(scanCtx)
@@ -612,7 +635,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 
 	// Wait for all goroutines
 	if err := g.Wait(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Cross-account check needs account ID
@@ -620,12 +643,6 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 
 	s.outputService.StopSpinner()
 
-	// Print report header with Amazon orange color
-	orange := "\033[38;2;255;153;0m" // Amazon Orange #FF9900
-	reset := "\033[0m"
-	fmt.Printf("\n%s🔐 AWS Perimeter v%s - Security Posture Report - Account: %s - Region: %s%s\n", orange, s.versionInfo.Version, *stsResult.Account, flags.Region, reset)
-
-	// Render all outputs
 	vpcInput := model.RenderSecurityInput{
 		AccountID:            *stsResult.Account,
 		Region:               flags.Region,
@@ -639,10 +656,6 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		PlaintextRisks:     plaintextRisks,
 		IMDSv1Risks:        imdsv1Risks,
 	}
-	if err := s.outputService.RenderSecurity(vpcInput); err != nil {
-		return err
-	}
-
 	iamInput := model.RenderIAMInput{
 		AccountID:                *stsResult.Account,
 		Region:                   flags.Region,
@@ -653,10 +666,6 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		OverlyPermissivePolicies: dangerousPolicies,
 		MissingBoundaries:        missingBoundaries,
 	}
-	if err := s.outputService.RenderIAM(iamInput); err != nil {
-		return err
-	}
-
 	s3Input := model.RenderS3Input{
 		AccountID:          *stsResult.Account,
 		Region:             flags.Region,
@@ -665,20 +674,12 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		RiskyPolicies:      riskyPolicies,
 		SensitiveExposures: sensitiveExposures,
 	}
-	if err := s.outputService.RenderS3(s3Input); err != nil {
-		return err
-	}
-
 	ctInput := model.RenderCloudTrailInput{
 		AccountID:   *stsResult.Account,
 		Region:      flags.Region,
 		TrailStatus: trailStatus,
 		TrailGaps:   trailGaps,
 	}
-	if err := s.outputService.RenderCloudTrail(ctInput); err != nil {
-		return err
-	}
-
 	secretsInput := model.RenderSecretsInput{
 		AccountID:     *stsResult.Account,
 		Region:        flags.Region,
@@ -687,11 +688,6 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		S3Secrets:     s3Secrets,
 		ECRSecrets:    ecrSecrets,
 	}
-	if err := s.outputService.RenderSecrets(secretsInput); err != nil {
-		return err
-	}
-
-	// New checks
 	advInput := model.RenderAdvancedInput{
 		AccountID:         *stsResult.Account,
 		Region:            flags.Region,
@@ -707,11 +703,6 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		SQSPolicyRisks:    sqsPolicyRisks,
 		SNSPolicyRisks:    snsPolicyRisks,
 	}
-	if err := s.outputService.RenderAdvanced(advInput); err != nil {
-		return err
-	}
-
-	// Extended Security Checks
 	extInput := extratables.ExtendedSecurityInput{
 		AccountID:        *stsResult.Account,
 		Region:           flags.Region,
@@ -741,7 +732,37 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		BoundaryRisks:    boundaryRisks,
 		InstanceProfiles: instanceProfiles,
 	}
-	extratables.DrawExtendedSecurityTable(extInput)
+
+	if flags.Output == "table" {
+		// Print report header with Amazon orange color
+		orange := "\033[38;2;255;153;0m" // Amazon Orange #FF9900
+		reset := "\033[0m"
+		fmt.Printf("\n%s🔐 AWS Perimeter v%s - Security Posture Report - Account: %s - Region: %s%s\n", orange, s.versionInfo.Version, *stsResult.Account, flags.Region, reset)
+		if err := s.outputService.RenderSecurity(vpcInput); err != nil {
+			return nil, err
+		}
+		if err := s.outputService.RenderIAM(iamInput); err != nil {
+			return nil, err
+		}
+		if err := s.outputService.RenderS3(s3Input); err != nil {
+			return nil, err
+		}
+		if err := s.outputService.RenderCloudTrail(ctInput); err != nil {
+			return nil, err
+		}
+		if err := s.outputService.RenderSecrets(secretsInput); err != nil {
+			return nil, err
+		}
+		if err := s.outputService.RenderAdvanced(advInput); err != nil {
+			return nil, err
+		}
+	} else if flags.Output == "html" {
+		fmt.Printf("\n🧾 HTML output mode: table output suppressed for account %s, region %s\n", *stsResult.Account, flags.Region)
+	}
+
+	if flags.Output == "table" {
+		extratables.DrawExtendedSecurityTable(extInput)
+	}
 
 	if err := s.persistScanIfEnabled(
 		scanCtx,
@@ -757,7 +778,7 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		advInput,
 		aiRisks,
 	); err != nil {
-		return fmt.Errorf("failed to persist scan: %w", err)
+		return nil, fmt.Errorf("failed to persist scan: %w", err)
 	}
 
 	// Generate HTML report if requested
@@ -969,6 +990,76 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 
 		// Extended Section - All remaining checks
 		extFindings := []htmloutput.Finding{}
+		// Include key extended status signals so HTML reflects scan coverage,
+		// not only risky findings.
+		if shieldStatus != nil {
+			shieldSeverity := "INFO"
+			shieldTitle := "Shield Advanced Enabled"
+			shieldDesc := "AWS Shield Advanced is enabled."
+			if !shieldStatus.ShieldAdvancedEnabled {
+				shieldSeverity = "LOW"
+				shieldTitle = "Shield Advanced Not Enabled"
+				shieldDesc = "Only standard Shield protection is active."
+			}
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity:    shieldSeverity,
+				Title:       shieldTitle,
+				Resource:    "Shield",
+				Description: shieldDesc,
+			})
+		}
+		if endpointStatus != nil {
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: "INFO",
+				Title:    "VPC Endpoint Coverage",
+				Resource: "VPC Endpoints",
+				Description: fmt.Sprintf("Gateway endpoints: %d, interface endpoints: %d",
+					endpointStatus.GatewayEndpoints, endpointStatus.InterfaceEndpoints),
+			})
+		}
+		if natStatus != nil {
+			natSeverity := "INFO"
+			natTitle := "NAT Configuration"
+			if natStatus.SingleAZRisk {
+				natSeverity = "MEDIUM"
+				natTitle = "NAT Single-AZ Risk"
+			}
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity: natSeverity,
+				Title:    natTitle,
+				Resource: "NAT",
+				Description: fmt.Sprintf("NAT gateways: %d, NAT instances: %d",
+					natStatus.NATGatewayCount, natStatus.NATInstanceCount),
+			})
+		}
+		if configStatus != nil {
+			configSeverity := "INFO"
+			configTitle := "AWS Config Enabled"
+			if !configStatus.IsEnabled {
+				configSeverity = "HIGH"
+				configTitle = "AWS Config Disabled"
+			}
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity:    configSeverity,
+				Title:       configTitle,
+				Resource:    "AWS Config",
+				Description: configStatus.Description,
+			})
+		}
+		if ebsEncryption != nil {
+			ebsSeverity := "INFO"
+			ebsTitle := "EBS Default Encryption Enabled"
+			if !ebsEncryption.DefaultEncryptionEnabled {
+				ebsSeverity = "MEDIUM"
+				ebsTitle = "EBS Default Encryption Disabled"
+			}
+			extFindings = append(extFindings, htmloutput.Finding{
+				Severity:    ebsSeverity,
+				Title:       ebsTitle,
+				Resource:    "EBS",
+				Description: ebsEncryption.Description,
+			})
+		}
 		for _, risk := range albRisks {
 			extFindings = append(extFindings, htmloutput.Finding{
 				Severity: risk.Severity, Title: "ALB Security Risk",
@@ -1150,11 +1241,98 @@ func (s *service) securityWorkflow(flags model.Flags) error {
 		sections = append(sections, htmloutput.NewExtendedSection(extFindings))
 
 		reportData := htmloutput.ConvertFindingsToReportData(*stsResult.Account, sections)
-		if err := htmloutput.WriteHTMLReport(flags.OutputFile, reportData); err != nil {
-			return fmt.Errorf("failed to generate HTML report: %w", err)
+		reportData.Region = flags.Region
+		totalFindings := 0
+		for _, sec := range sections {
+			totalFindings += len(sec.Findings)
 		}
+		if err := htmloutput.WriteHTMLReport(flags.OutputFile, reportData); err != nil {
+			return nil, fmt.Errorf("failed to generate HTML report: %w", err)
+		}
+		fmt.Printf("📊 HTML summary: account=%s region=%s total_findings=%d\n", *stsResult.Account, flags.Region, totalFindings)
 		fmt.Printf("\n✅ HTML report generated: %s\n", flags.OutputFile)
 	}
 
+	if flags.Output == "json" {
+		payload := s.buildConsolidatedJSONPayload(vpcInput, iamInput, s3Input, ctInput, secretsInput, advInput, extInput, aiRisks)
+		if emitJSON {
+			b, err := json.MarshalIndent(payload, "", "  ")
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal consolidated JSON output: %w", err)
+			}
+			fmt.Println(string(b))
+		}
+		return &payload, nil
+	}
+
+	return nil, nil
+}
+
+type consolidatedJSONReport struct {
+	Tool        string                            `json:"tool"`
+	Version     string                            `json:"version"`
+	AccountID   string                            `json:"account_id"`
+	Region      string                            `json:"region"`
+	GeneratedAt string                            `json:"generated_at"`
+	Sections    consolidatedJSONReportSections    `json:"sections"`
+	Extended    extratables.ExtendedSecurityInput `json:"extended_security"`
+	AIRisks     []aidetection.AIRisk              `json:"ai_attack_detection,omitempty"`
+}
+
+type consolidatedJSONReportSections struct {
+	Security   model.SecurityReportJSON   `json:"security"`
+	IAM        model.IAMReportJSON        `json:"iam"`
+	S3         model.S3ReportJSON         `json:"s3"`
+	CloudTrail model.CloudTrailReportJSON `json:"cloudtrail"`
+	Secrets    model.SecretsReportJSON    `json:"secrets"`
+	Advanced   model.AdvancedReportJSON   `json:"advanced"`
+}
+
+func (s *service) outputConsolidatedJSON(
+	vpcInput model.RenderSecurityInput,
+	iamInput model.RenderIAMInput,
+	s3Input model.RenderS3Input,
+	ctInput model.RenderCloudTrailInput,
+	secretsInput model.RenderSecretsInput,
+	advInput model.RenderAdvancedInput,
+	extInput extratables.ExtendedSecurityInput,
+	aiRisks []aidetection.AIRisk,
+) error {
+	payload := s.buildConsolidatedJSONPayload(vpcInput, iamInput, s3Input, ctInput, secretsInput, advInput, extInput, aiRisks)
+	b, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal consolidated JSON output: %w", err)
+	}
+	fmt.Println(string(b))
 	return nil
+}
+
+func (s *service) buildConsolidatedJSONPayload(
+	vpcInput model.RenderSecurityInput,
+	iamInput model.RenderIAMInput,
+	s3Input model.RenderS3Input,
+	ctInput model.RenderCloudTrailInput,
+	secretsInput model.RenderSecretsInput,
+	advInput model.RenderAdvancedInput,
+	extInput extratables.ExtendedSecurityInput,
+	aiRisks []aidetection.AIRisk,
+) consolidatedJSONReport {
+	generatedAt := time.Now().UTC().Format(time.RFC3339)
+	return consolidatedJSONReport{
+		Tool:        "aws-perimeter",
+		Version:     s.versionInfo.Version,
+		AccountID:   vpcInput.AccountID,
+		Region:      vpcInput.Region,
+		GeneratedAt: generatedAt,
+		Sections: consolidatedJSONReportSections{
+			Security:   jsonoutput.BuildSecurityReport(vpcInput, generatedAt),
+			IAM:        jsonoutput.BuildIAMReport(iamInput, generatedAt),
+			S3:         jsonoutput.BuildS3Report(s3Input, generatedAt),
+			CloudTrail: jsonoutput.BuildCloudTrailReport(ctInput, generatedAt),
+			Secrets:    jsonoutput.BuildSecretsReport(secretsInput, generatedAt),
+			Advanced:   jsonoutput.BuildAdvancedReport(advInput, generatedAt),
+		},
+		Extended: extInput,
+		AIRisks:  aiRisks,
+	}
 }
