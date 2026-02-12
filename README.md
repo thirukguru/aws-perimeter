@@ -13,14 +13,14 @@ Product overview: [`docs/CAPABILITIES_OVERVIEW.md`](docs/CAPABILITIES_OVERVIEW.m
 
 ## Features
 
-### 🔒 VPC Security
+###  VPC Security
 - Security group analysis (open SSH/RDP, database ports)
 - Public exposure detection & management port risks
 - Network ACL analysis & VPC Flow Log audit
 - VPC peering risks, bastion host detection
 - NAT Gateway status & VPC endpoint coverage
 
-### 🔑 IAM Security
+###  IAM Security
 - Privilege escalation detection (17 patterns)
 - Stale credentials (90+ days)
 - Cross-account trust analysis
@@ -28,19 +28,19 @@ Product overview: [`docs/CAPABILITIES_OVERVIEW.md`](docs/CAPABILITIES_OVERVIEW.m
 - Overly permissive policies (`*:*`)
 - Role chaining, external ID, permission boundaries
 
-### 📦 S3 Security
+###  S3 Security
 - Public bucket detection
 - Encryption audit & risky bucket policies
 - Public access block status
 - Sensitive file/object discovery (`.env`, `.git`, credentials)
 - Deep text-content secret detection in S3 objects
 
-### 📋 CloudTrail & Logging
+###  CloudTrail & Logging
 - Trail coverage gaps & multi-region logging
 - Log validation status
 - CloudWatch Logs integration
 
-### 🔐 Secrets Detection
+### Secrets Detection
 - Lambda env vars (10 secret patterns)
 - Lambda deployment package (ZIP) scanning
 - EC2 user data scanning
@@ -48,7 +48,7 @@ Product overview: [`docs/CAPABILITIES_OVERVIEW.md`](docs/CAPABILITIES_OVERVIEW.m
 - ECR image layer scanning for embedded credentials
 - AWS keys, GitHub/Slack/Stripe tokens
 
-### 🐳 Container Security (NEW)
+###  Container Security (NEW)
 
 #### ECS Security (10 checks)
 - Privileged containers
@@ -75,7 +75,7 @@ Product overview: [`docs/CAPABILITIES_OVERVIEW.md`](docs/CAPABILITIES_OVERVIEW.m
 - Admin-level node IAM role
 - AMI type (Bottlerocket preference)
 
-### 🤖 AI Attack Detection (NEW)
+###  AI Attack Detection (NEW)
 *Based on Feb 2025 threat intelligence: 8-minute AWS breach*
 
 - **GPU Instance Monitoring**: Detection of p2/p3/p4/p5, g3/g4/g5, inf1/inf2, trn1 instances
