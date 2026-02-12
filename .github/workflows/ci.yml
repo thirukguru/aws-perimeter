@@ -43,6 +43,20 @@ jobs:
           version: v1.64.5
           args: --timeout=5m
 
+  openapi-contract:
+    name: OpenAPI Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install API tooling
+        run: npm install
+      - name: Lint and validate OpenAPI specs
+        run: npm run api:check
+
   goreleaser-dry-run:
     name: GoReleaser Dry Run
     runs-on: ubuntu-latest

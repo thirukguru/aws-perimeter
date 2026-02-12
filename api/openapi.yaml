@@ -1,0 +1,1087 @@
+openapi: 3.1.0
+info:
+  title: AWS Doctor SaaS API
+  version: 0.1.0
+  description: |
+    Initial API contract skeleton generated from docs/API_TO_SCREEN_CONTRACT.md.
+    This spec is intentionally pragmatic: stable paths, reusable schemas,
+    and screen-oriented endpoint coverage for frontend/backend parallel work.
+servers:
+  - url: https://api.awsdoctor.example.com
+    description: Production
+  - url: https://staging-api.awsdoctor.example.com
+    description: Staging
+tags:
+  - name: Auth
+  - name: Dashboard
+  - name: Findings
+  - name: Scans
+  - name: Accounts
+  - name: Security
+  - name: Cost
+  - name: Intelligence
+  - name: Compliance
+  - name: Integrations
+  - name: Billing
+security:
+  - bearerAuth: []
+paths:
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '401': { $ref: '#/components/responses/Error' }
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      responses:
+        '204': { description: Logged out }
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshToken
+      responses:
+        '200':
+          description: Refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+
+  /v1/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      responses:
+        '200':
+          description: Current user and effective permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+
+  /v1/dashboard/summary:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboardSummary
+      parameters:
+        - $ref: '#/components/parameters/AccountIds'
+        - $ref: '#/components/parameters/Regions'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Dashboard KPI summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummary'
+
+  /v1/dashboard/trends:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboardTrends
+      parameters:
+        - name: metric
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [security, cost]
+        - name: granularity
+          in: query
+          schema:
+            type: string
+            enum: [hour, day, week, month]
+            default: day
+        - $ref: '#/components/parameters/AccountIds'
+        - $ref: '#/components/parameters/Regions'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Trend points
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendResponse'
+
+  /v1/findings:
+    get:
+      tags: [Findings]
+      operationId: listFindings
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortOrder'
+        - $ref: '#/components/parameters/AccountIds'
+        - $ref: '#/components/parameters/Regions'
+        - $ref: '#/components/parameters/Severities'
+        - $ref: '#/components/parameters/Services'
+        - $ref: '#/components/parameters/Statuses'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/SearchQ'
+        - name: group_by
+          in: query
+          schema:
+            type: string
+            description: Optional grouping key(s), comma-separated
+      responses:
+        '200':
+          description: Paginated findings list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FindingListResponse'
+
+  /v1/findings/{findingId}:
+    get:
+      tags: [Findings]
+      operationId: getFinding
+      parameters:
+        - $ref: '#/components/parameters/FindingId'
+      responses:
+        '200':
+          description: Finding details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FindingDetail'
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Findings]
+      operationId: updateFinding
+      parameters:
+        - $ref: '#/components/parameters/FindingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FindingUpdateRequest'
+      responses:
+        '200':
+          description: Finding updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FindingDetail'
+        '409': { $ref: '#/components/responses/Error' }
+
+  /v1/findings/{findingId}/snooze:
+    post:
+      tags: [Findings]
+      operationId: snoozeFinding
+      parameters:
+        - $ref: '#/components/parameters/FindingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, until]
+              properties:
+                reason: { type: string }
+                until: { type: string, format: date-time }
+      responses:
+        '204': { description: Snoozed }
+
+  /v1/findings/{findingId}/unsnooze:
+    post:
+      tags: [Findings]
+      operationId: unsnoozeFinding
+      parameters:
+        - $ref: '#/components/parameters/FindingId'
+      responses:
+        '204': { description: Unsnoozed }
+
+  /v1/scans:
+    get:
+      tags: [Scans]
+      operationId: listScans
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/AccountIds'
+        - $ref: '#/components/parameters/Regions'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [queued, running, completed, failed, cancelled]
+        - name: group_by
+          in: query
+          schema:
+            type: string
+            description: e.g. region,severity
+      responses:
+        '200':
+          description: Scan list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanListResponse'
+    post:
+      tags: [Scans]
+      operationId: runScan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunScanRequest'
+      responses:
+        '202':
+          description: Scan queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+
+  /v1/scans/{scanId}:
+    get:
+      tags: [Scans]
+      operationId: getScan
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '200':
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+
+  /v1/scans/{scanId}/cancel:
+    post:
+      tags: [Scans]
+      operationId: cancelScan
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '202': { description: Cancellation requested }
+
+  /v1/scans/{scanId}/findings:
+    get:
+      tags: [Scans]
+      operationId: listScanFindings
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Findings for a scan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FindingListResponse'
+
+  /v1/scans/{scanId}/artifacts:
+    get:
+      tags: [Scans]
+      operationId: listScanArtifacts
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '200':
+          description: Artifact list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  artifacts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Artifact'
+
+  /v1/accounts:
+    get:
+      tags: [Accounts]
+      operationId: listAccounts
+      responses:
+        '200':
+          description: Account list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+    post:
+      tags: [Accounts]
+      operationId: connectAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectAccountRequest'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+
+  /v1/accounts/{accountId}:
+    patch:
+      tags: [Accounts]
+      operationId: updateAccount
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Account updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+    delete:
+      tags: [Accounts]
+      operationId: deleteAccount
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '204': { description: Account deleted }
+
+  /v1/accounts/{accountId}/verify:
+    post:
+      tags: [Accounts]
+      operationId: verifyAccount
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  checks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        status: { type: string, enum: [pass, fail, warn] }
+                        detail: { type: string }
+
+  /v1/accounts/{accountId}/regions:
+    get:
+      tags: [Accounts]
+      operationId: listAccountRegions
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Regions for account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_id: { type: string }
+                  regions:
+                    type: array
+                    items: { type: string }
+
+  /v1/cost/summary:
+    get:
+      tags: [Cost]
+      operationId: getCostSummary
+      parameters:
+        - name: group_by
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/AccountIds'
+        - $ref: '#/components/parameters/Regions'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Cost summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostSummary'
+
+  /v1/cost/recommendations:
+    get:
+      tags: [Cost]
+      operationId: listCostRecommendations
+      responses:
+        '200':
+          description: Cost recommendations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CostRecommendation'
+
+  /v1/intelligence/recommendations:
+    get:
+      tags: [Intelligence]
+      operationId: listIntelligenceRecommendations
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Recommendations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recommendation'
+
+  /v1/compliance/cis:
+    get:
+      tags: [Compliance]
+      operationId: getCISCompliance
+      responses:
+        '200':
+          description: CIS controls
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceResponse'
+
+  /v1/compliance/fsbp:
+    get:
+      tags: [Compliance]
+      operationId: getFSBPCompliance
+      responses:
+        '200':
+          description: FSBP controls
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceResponse'
+
+  /v1/exports:
+    post:
+      tags: [Scans]
+      operationId: createExport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format]
+              properties:
+                format:
+                  type: string
+                  enum: [json, html, pdf, csv]
+                scope:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '202':
+          description: Export queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  export_id: { type: string }
+                  status: { type: string }
+
+  /v1/integrations/slack:
+    post:
+      tags: [Integrations]
+      operationId: connectSlack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Connected }
+
+  /v1/integrations/pagerduty:
+    post:
+      tags: [Integrations]
+      operationId: connectPagerDuty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Connected }
+
+  /v1/integrations/webhooks:
+    post:
+      tags: [Integrations]
+      operationId: connectWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Connected }
+
+  /v1/integrations/siem/splunk:
+    post:
+      tags: [Integrations]
+      operationId: connectSplunk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Connected }
+
+  /v1/integrations/siem/elk:
+    post:
+      tags: [Integrations]
+      operationId: connectELK
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Connected }
+
+  /v1/billing/plans:
+    get:
+      tags: [Billing]
+      operationId: listPlans
+      responses:
+        '200':
+          description: Plan list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Plan'
+
+  /v1/billing/subscribe:
+    post:
+      tags: [Billing]
+      operationId: subscribe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id]
+              properties:
+                plan_id: { type: string }
+      responses:
+        '200': { description: Subscribed }
+
+  /v1/billing/usage:
+    get:
+      tags: [Billing]
+      operationId: getBillingUsage
+      responses:
+        '200':
+          description: Usage summary
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /v1/billing/invoices:
+    get:
+      tags: [Billing]
+      operationId: listInvoices
+      responses:
+        '200':
+          description: Invoice list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        amount: { type: number }
+                        currency: { type: string }
+                        issued_at: { type: string, format: date-time }
+
+  /v1/security/{domain}:
+    get:
+      tags: [Security]
+      operationId: listSecurityDomainRisks
+      parameters:
+        - name: domain
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - ec2
+              - s3
+              - iam
+              - iam-advanced
+              - lambda
+              - ecs
+              - eks
+              - ecr
+              - apigateway
+              - cloudfront
+              - cloudtrail
+              - event
+              - cache
+              - aurora
+              - redshift
+              - resource-policy
+              - route53
+              - elb
+              - vpc
+              - vpc-advanced
+              - vpc-endpoints
+              - secrets
+              - data-protection
+              - governance
+              - shield
+              - cognito
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/AccountIds'
+        - $ref: '#/components/parameters/Regions'
+        - $ref: '#/components/parameters/Severities'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Normalized security risk list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityRiskListResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    FindingId:
+      name: findingId
+      in: path
+      required: true
+      schema: { type: string }
+    ScanId:
+      name: scanId
+      in: path
+      required: true
+      schema: { type: string }
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+    SortBy:
+      name: sort_by
+      in: query
+      schema: { type: string }
+    SortOrder:
+      name: sort_order
+      in: query
+      schema: { type: string, enum: [asc, desc], default: desc }
+    AccountIds:
+      name: account_ids
+      in: query
+      schema:
+        type: array
+        items: { type: string }
+      style: form
+      explode: true
+    Regions:
+      name: regions
+      in: query
+      schema:
+        type: array
+        items: { type: string }
+      style: form
+      explode: true
+    Severities:
+      name: severity
+      in: query
+      schema:
+        type: array
+        items: { type: string, enum: [CRITICAL, HIGH, MEDIUM, LOW, INFO] }
+      style: form
+      explode: true
+    Services:
+      name: service
+      in: query
+      schema:
+        type: array
+        items: { type: string }
+      style: form
+      explode: true
+    Statuses:
+      name: status
+      in: query
+      schema:
+        type: array
+        items: { type: string }
+      style: form
+      explode: true
+    SearchQ:
+      name: q
+      in: query
+      schema: { type: string }
+    From:
+      name: from
+      in: query
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      schema: { type: string, format: date-time }
+
+  responses:
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+
+    AuthSession:
+      type: object
+      required: [access_token, refresh_token, expires_in]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer }
+
+    Me:
+      type: object
+      properties:
+        user_id: { type: string }
+        email: { type: string }
+        tenant_id: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+
+    DashboardSummary:
+      type: object
+      properties:
+        security_score: { type: number }
+        critical_count: { type: integer }
+        monthly_waste: { type: number }
+        attack_surface: { type: integer }
+        deltas:
+          type: object
+          additionalProperties: { type: number }
+
+    TrendPoint:
+      type: object
+      required: [timestamp, value]
+      properties:
+        timestamp: { type: string, format: date-time }
+        value: { type: number }
+
+    TrendResponse:
+      type: object
+      properties:
+        metric: { type: string }
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendPoint'
+
+    Finding:
+      type: object
+      required: [id, severity, service, risk_type, resource_id, account_id, region, status]
+      properties:
+        id: { type: string }
+        severity: { type: string }
+        service: { type: string }
+        risk_type: { type: string }
+        resource_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        status: { type: string }
+        first_seen: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+        assignee: { type: string }
+
+    FindingDetail:
+      allOf:
+        - $ref: '#/components/schemas/Finding'
+        - type: object
+          properties:
+            description: { type: string }
+            recommendation: { type: string }
+            evidence: { type: object, additionalProperties: true }
+            related_findings:
+              type: array
+              items: { type: string }
+            history:
+              type: array
+              items:
+                type: object
+                properties:
+                  at: { type: string, format: date-time }
+                  actor: { type: string }
+                  action: { type: string }
+                  note: { type: string }
+
+    FindingUpdateRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [OPEN, IN_PROGRESS, MITIGATED, ACCEPTED_RISK, SNOOZED, REOPENED]
+        assignee: { type: string }
+        note: { type: string }
+
+    FindingListResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Finding' }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+
+    RunScanRequest:
+      type: object
+      required: [account_ids, regions]
+      properties:
+        account_ids:
+          type: array
+          items: { type: string }
+        regions:
+          type: array
+          items: { type: string }
+        modules:
+          type: array
+          items: { type: string }
+
+    Scan:
+      type: object
+      required: [id, status, started_at]
+      properties:
+        id: { type: string }
+        status: { type: string }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        progress: { type: number }
+
+    ScanListResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Scan' }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+
+    Artifact:
+      type: object
+      properties:
+        id: { type: string }
+        format: { type: string }
+        url: { type: string }
+        created_at: { type: string, format: date-time }
+
+    Account:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        account_id: { type: string }
+        connection_status: { type: string }
+        security_score: { type: number }
+        last_scan_at: { type: string, format: date-time }
+
+    ConnectAccountRequest:
+      type: object
+      required: [aws_account_id, role_arn, external_id]
+      properties:
+        aws_account_id: { type: string }
+        role_arn: { type: string }
+        external_id: { type: string }
+        name: { type: string }
+
+    CostSummary:
+      type: object
+      properties:
+        monthly_waste: { type: number }
+        realized_savings: { type: number }
+        safe_actions_count: { type: integer }
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              value: { type: number }
+
+    CostRecommendation:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        estimated_savings: { type: number }
+        security_impact: { type: string }
+        requires_approval: { type: boolean }
+
+    Recommendation:
+      type: object
+      properties:
+        id: { type: string }
+        priority_score: { type: number }
+        title: { type: string }
+        narrative: { type: string }
+        linked_finding_ids:
+          type: array
+          items: { type: string }
+        linked_resource_ids:
+          type: array
+          items: { type: string }
+
+    ComplianceResponse:
+      type: object
+      properties:
+        framework: { type: string }
+        controls:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              status: { type: string, enum: [PASS, FAIL, PARTIAL, NA] }
+              mapped_findings_count: { type: integer }
+
+    SecurityRisk:
+      type: object
+      properties:
+        id: { type: string }
+        source_service: { type: string }
+        risk_type: { type: string }
+        severity: { type: string }
+        resource: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        description: { type: string }
+        recommendation: { type: string }
+        detected_at: { type: string, format: date-time }
+
+    SecurityRiskListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SecurityRisk' }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+
+    Plan:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        price_monthly: { type: number }
+        currency: { type: string }
+        limits:
+          type: object
+          properties:
+            max_accounts: { type: integer }
+            max_scans_per_day: { type: integer }
+            retention_days: { type: integer }

@@ -1,0 +1,14 @@
+extends:
+  - spectral:oas
+
+rules:
+  operation-operationId:
+    severity: error
+  operation-description:
+    severity: warn
+  operation-tags:
+    severity: error
+  info-contact:
+    severity: off
+  oas3-valid-schema-example:
+    severity: warn

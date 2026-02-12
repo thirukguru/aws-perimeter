@@ -1,0 +1,15 @@
+{
+  "name": "aws-doctor-api-contracts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "OpenAPI validation tooling for AWS Doctor specs",
+  "scripts": {
+    "api:lint": "spectral lint api/openapi.public.yaml api/openapi.internal.yaml api/openapi.yaml",
+    "api:validate": "swagger-cli validate api/openapi.public.yaml && swagger-cli validate api/openapi.internal.yaml && swagger-cli validate api/openapi.yaml",
+    "api:check": "npm run api:lint && npm run api:validate"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-cli": "^4.0.4",
+    "@stoplight/spectral-cli": "^6.14.2"
+  }
+}

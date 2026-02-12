@@ -1,0 +1,287 @@
+openapi: 3.1.0
+info:
+  title: AWS Doctor Internal API
+  version: 0.1.0
+  description: |
+    Internal-only operational and administrative endpoints.
+    This spec is for platform tooling, SRE workflows, and backoffice operations.
+servers:
+  - url: https://internal-api.awsdoctor.example.com
+    description: Internal production
+  - url: https://internal-staging-api.awsdoctor.example.com
+    description: Internal staging
+tags:
+  - name: Health
+  - name: Ops
+  - name: Jobs
+  - name: Admin
+  - name: Storage
+security:
+  - bearerAuth: []
+paths:
+  /internal/v1/health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      security: []
+      responses:
+        '200':
+          description: Liveness probe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /internal/v1/health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      security: []
+      responses:
+        '200':
+          description: Readiness probe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /internal/v1/ops/cache/invalidate:
+    post:
+      tags: [Ops]
+      operationId: invalidateCache
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items: { type: string }
+                tenant_ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        '202':
+          description: Invalidation accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+
+  /internal/v1/jobs/reconcile-findings:
+    post:
+      tags: [Jobs]
+      operationId: enqueueFindingReconcile
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant_id: { type: string }
+                account_id: { type: string }
+                region: { type: string }
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+
+  /internal/v1/jobs/backfill-trends:
+    post:
+      tags: [Jobs]
+      operationId: enqueueTrendsBackfill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                tenant_id: { type: string }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+
+  /internal/v1/jobs/{jobId}:
+    get:
+      tags: [Jobs]
+      operationId: getJobStatus
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatus'
+
+  /internal/v1/admin/tenants/{tenantId}/limits:
+    patch:
+      tags: [Admin]
+      operationId: updateTenantLimits
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantLimits'
+      responses:
+        '200':
+          description: Limits updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantLimits'
+
+  /internal/v1/admin/tenants/{tenantId}/suspend:
+    post:
+      tags: [Admin]
+      operationId: suspendTenant
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '204': { description: Suspended }
+
+  /internal/v1/admin/tenants/{tenantId}/unsuspend:
+    post:
+      tags: [Admin]
+      operationId: unsuspendTenant
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Unsuspended }
+
+  /internal/v1/storage/reindex:
+    post:
+      tags: [Storage]
+      operationId: triggerStorageReindex
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id: { type: string }
+                region: { type: string }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+      responses:
+        '202':
+          description: Reindex job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+
+  /internal/v1/storage/compact:
+    post:
+      tags: [Storage]
+      operationId: triggerStorageCompaction
+      responses:
+        '202':
+          description: Compaction accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        ok: { type: boolean }
+        status: { type: string }
+        timestamp: { type: string, format: date-time }
+        dependencies:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              ok: { type: boolean }
+              message: { type: string }
+
+    OperationAccepted:
+      type: object
+      properties:
+        operation_id: { type: string }
+        status: { type: string, enum: [accepted] }
+
+    JobAccepted:
+      type: object
+      properties:
+        job_id: { type: string }
+        status: { type: string, enum: [queued] }
+
+    JobStatus:
+      type: object
+      properties:
+        job_id: { type: string }
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled]
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        progress: { type: number }
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+
+    TenantLimits:
+      type: object
+      properties:
+        max_accounts: { type: integer, minimum: 1 }
+        max_scans_per_day: { type: integer, minimum: 1 }
+        retention_days: { type: integer, minimum: 1 }
+        export_quota_per_day: { type: integer, minimum: 1 }
