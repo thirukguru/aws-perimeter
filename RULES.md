@@ -4,7 +4,7 @@
 
 ---
 
-## 🚀 Execution Modes
+##  Execution Modes
 
 | Mode | Description |
 |------|-------------|
@@ -16,7 +16,7 @@
 
 ---
 
-## 🔒 VPC Security (10 Rules)
+##  VPC Security (10 Rules)
 
 | Rule | Description |
 |------|-------------|
@@ -33,7 +33,7 @@
 
 ---
 
-## 👤 IAM Security (8 Rules)
+##  IAM Security (8 Rules)
 
 | Rule | Description |
 |------|-------------|
@@ -48,7 +48,7 @@
 
 ---
 
-## 📦 S3 Security (4 Rules)
+##  S3 Security (4 Rules)
 
 | Rule | Description |
 |------|-------------|
@@ -59,7 +59,7 @@
 
 ---
 
-## 📋 CloudTrail Security (3 Rules)
+##  CloudTrail Security (3 Rules)
 
 | Rule | Description |
 |------|-------------|
@@ -69,7 +69,7 @@
 
 ---
 
-## 🔑 Secrets Detection (5 Rules)
+##  Secrets Detection (5 Rules)
 
 | Rule | Description |
 |------|-------------|
@@ -81,7 +81,7 @@
 
 ---
 
-## 🛡️ Advanced Security Services (4 Rules)
+##  Advanced Security Services (4 Rules)
 
 | Rule | Description |
 |------|-------------|
@@ -92,7 +92,7 @@
 
 ---
 
-## 🌐 CloudFront Security (6 Rules) - NEW
+##  CloudFront Security (6 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -105,7 +105,7 @@
 
 ---
 
-## 🚪 API Gateway Security (10 Rules) - NEW
+##  API Gateway Security (10 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -122,7 +122,7 @@
 
 ---
 
-## 🗄️ Aurora/RDS Security (10 Rules) - NEW
+## Aurora/RDS Security (10 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -139,7 +139,7 @@
 
 ---
 
-## 🐳 ECS Security (10 Rules) - NEW
+##  ECS Security (10 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -156,7 +156,7 @@
 
 ---
 
-## ☸️ EKS Security (12 Rules) - NEW
+##  EKS Security (12 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -175,7 +175,7 @@
 
 ---
 
-## 🔧 Extended Checks (15 Rules)
+##  Extended Checks (15 Rules)
 
 | Rule | Description |
 |------|-------------|
@@ -197,7 +197,7 @@
 
 ---
 
-## 🤖 AI Attack Detection (10 Rules)
+##  AI Attack Detection (10 Rules)
 
 *Based on Feb 2025 threat intelligence: 8-minute AWS breach using AI*
 
@@ -216,7 +216,7 @@
 
 ---
 
-## 📨 SNS/SQS Security (5 Rules) - NEW
+##  SNS/SQS Security (5 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -228,7 +228,7 @@
 
 ---
 
-## 🐳 ECR Security (8 Rules) - NEW
+##  ECR Security (8 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -243,7 +243,7 @@
 
 ---
 
-## 💾 Backup & Disaster Recovery (5 Rules) - NEW
+##  Backup & Disaster Recovery (5 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -255,7 +255,7 @@
 
 ---
 
-## 🏛️ Organizations & SCP Expansion (4 Rules) - NEW
+##  Organizations & SCP Expansion (4 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -266,7 +266,7 @@
 
 ---
 
-## λ Lambda Security Expansion (6 Rules) - NEW
+##  Lambda Security Expansion (6 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -279,7 +279,7 @@
 
 ---
 
-## 🧭 EventBridge/Step Functions Security (3 Rules) - NEW
+##  EventBridge/Step Functions Security (3 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -289,7 +289,7 @@
 
 ---
 
-## 🧠 ElastiCache/MemoryDB Security (5 Rules) - NEW
+##  ElastiCache/MemoryDB Security (5 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -301,7 +301,7 @@
 
 ---
 
-## 🏭 Redshift Security (5 Rules) - NEW
+##  Redshift Security (5 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -313,7 +313,7 @@
 
 ---
 
-## 🪪 Cognito Security (5 Rules) - NEW
+## Cognito Security (5 Rules) - NEW
 
 | Rule | Description |
 |------|-------------|
@@ -325,7 +325,7 @@
 
 ---
 
-## 📊 Summary
+##  Summary
 
 | Category | Rule Count | Production Ready |
 |----------|------------|------------------|
@@ -355,7 +355,7 @@
 
 ---
 
-## 🔗 Threat Intelligence References
+##  Threat Intelligence References
 
 Many rules are based on real-world attack patterns:
 - **GRU Sandworm Campaign** - Network edge device targeting
